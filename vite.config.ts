@@ -8,11 +8,49 @@
 // hosting already compresses at the edge.
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
+  },
+  vite: {
+    plugins: [
+      // Offline mode. Registration lives only in src/lib/pwa.ts (guarded against preview/dev).
+      // Runs only for the browser build and writes sw.js into the served static folder.
+      ...VitePWA({
+        strategies: "generateSW",
+        registerType: "autoUpdate",
+        injectRegister: null,
+        filename: "sw.js",
+        manifest: false,
+        outDir: "dist/client",
+        devOptions: { enabled: false },
+        workbox: {
+          globDirectory: "dist/client",
+          globPatterns: ["**/*.{js,css,woff2,png,jpg,svg,webmanifest}"],
+          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+          cleanupOutdatedCaches: true,
+          navigateFallback: null,
+          runtimeCaching: [
+            {
+              urlPattern: ({ request, url }) =>
+                request.mode === "navigate" && !url.pathname.startsWith("/~oauth"),
+              handler: "NetworkFirst",
+              options: {
+                cacheName: "pages",
+                networkTimeoutSeconds: 4,
+                expiration: { maxEntries: 40 },
+              },
+            },
+          ],
+        },
+      }).map((plugin) => ({
+        ...plugin,
+        applyToEnvironment: (env: { name: string }) => env.name === "client",
+      })),
+    ],
   },
 });

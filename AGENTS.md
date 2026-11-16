@@ -33,3 +33,5 @@ use the editor.
 
 - The UI talks to the PS2 core only through the `emulator` object in `src/lib/emulator.ts` (currently a stub); swap the core there without touching screens, so the native/WASM core stays pluggable.
 - Game list and settings persist in localStorage via `src/lib/library.ts`; ISO/BIOS files live only in memory per session because browsers can't reliably keep multi-GB files.
+- Offline mode uses vite-plugin-pwa (generateSW, client environment only, sw.js written to dist/client); the only registrar is src/lib/pwa.ts, which refuses dev, iframes and Lovable preview hosts so the editor preview never gets a stale cache.
+- Fonts are self-hosted via @fontsource (latin subsets) so the app renders offline.
