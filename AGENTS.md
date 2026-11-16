@@ -28,3 +28,8 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Project rules
+
+- The UI talks to the PS2 core only through the `emulator` object in `src/lib/emulator.ts` (currently a stub); swap the core there without touching screens, so the native/WASM core stays pluggable.
+- Game list and settings persist in localStorage via `src/lib/library.ts`; ISO/BIOS files live only in memory per session because browsers can't reliably keep multi-GB files.
