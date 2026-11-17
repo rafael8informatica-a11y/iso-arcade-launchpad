@@ -24,6 +24,12 @@ export function isPreviewHost(rawHost: string) {
   );
 }
 
+/** True dentro do APK (Capacitor): os arquivos já estão no aparelho, sem service worker. */
+export function isNativeApp(win: unknown = typeof window === "undefined" ? undefined : window) {
+  const cap = (win as { Capacitor?: { isNativePlatform?: () => boolean } } | undefined)?.Capacitor;
+  return Boolean(cap?.isNativePlatform?.());
+}
+
 function inIframe() {
   try {
     return window.self !== window.top;
@@ -46,6 +52,7 @@ export async function setupPwa() {
 
   const refused =
     !import.meta.env.PROD ||
+    isNativeApp() ||
     inIframe() ||
     isPreviewHost(window.location.hostname) ||
     new URLSearchParams(window.location.search).get("sw") === "off";

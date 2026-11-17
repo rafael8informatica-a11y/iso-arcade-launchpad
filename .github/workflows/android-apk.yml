@@ -1,0 +1,45 @@
+# Gera o APK do NEBULA·2 no GitHub, sem Android Studio.
+# Roda a cada push na branch principal e também pelo botão "Run workflow" na aba Actions.
+# O APK fica em: aba Actions → execução mais recente → Artifacts → nebula2-apk.
+name: Gerar APK Android
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Instalar dependências
+        run: bun install --frozen-lockfile
+
+      - name: Exportar a interface como arquivos locais
+        run: CAPACITOR_BUILD=1 bunx vite build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Copiar a interface para o projeto Android
+        run: bunx cap sync android
+
+      - name: Compilar o APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nebula2-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

@@ -10,17 +10,21 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { VitePWA } from "vite-plugin-pwa";
 
+// CAPACITOR_BUILD=1 builds a static copy (index.html + assets) for the Android app.
+const isCapacitor = process.env.CAPACITOR_BUILD === "1";
+
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
+    ...(isCapacitor ? { spa: { enabled: true, prerender: { outputPath: "/index.html" } } } : {}),
   },
   vite: {
     plugins: [
       // Offline mode. Registration lives only in src/lib/pwa.ts (guarded against preview/dev).
       // Runs only for the browser build and writes sw.js into the served static folder.
-      ...VitePWA({
+      ...(isCapacitor ? [] : VitePWA({
         strategies: "generateSW",
         registerType: "autoUpdate",
         injectRegister: null,
@@ -50,7 +54,7 @@ export default defineConfig({
       }).map((plugin) => ({
         ...plugin,
         applyToEnvironment: (env: { name: string }) => env.name === "client",
-      })),
+      }))),
     ],
   },
 });

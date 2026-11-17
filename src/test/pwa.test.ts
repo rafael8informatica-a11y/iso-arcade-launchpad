@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isPreviewHost } from "@/lib/pwa";
+import { isNativeApp, isPreviewHost } from "@/lib/pwa";
 
 describe("offline mode only outside the editor preview", () => {
   it("refuses the Lovable preview", () => {
@@ -10,5 +10,16 @@ describe("offline mode only outside the editor preview", () => {
 
   it("allows the published app", () => {
     expect(isPreviewHost("iso-arcade-launchpad.lovable.app")).toBe(false);
+  });
+});
+
+describe("no offline cache inside the Android app", () => {
+  it("detects the Android app", () => {
+    expect(isNativeApp({ Capacitor: { isNativePlatform: () => true } })).toBe(true);
+  });
+
+  it("treats a normal browser as not the Android app", () => {
+    expect(isNativeApp({})).toBe(false);
+    expect(isNativeApp({ Capacitor: { isNativePlatform: () => false } })).toBe(false);
   });
 });

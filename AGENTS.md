@@ -35,3 +35,4 @@ use the editor.
 - Game list and settings persist in localStorage via `src/lib/library.ts`; ISO/BIOS files live only in memory per session because browsers can't reliably keep multi-GB files.
 - Offline mode uses vite-plugin-pwa (generateSW, client environment only, sw.js written to dist/client); the only registrar is src/lib/pwa.ts, which refuses dev, iframes and Lovable preview hosts so the editor preview never gets a stale cache.
 - Fonts are self-hosted via @fontsource (latin subsets) so the app renders offline.
+- Android APK uses Capacitor (`capacitor.config.ts`, `android/`, webDir `dist/client`); `CAPACITOR_BUILD=1 vite build` switches TanStack Start to SPA mode (static index.html) and drops the service worker, and `.github/workflows/android-apk.yml` builds the debug APK on GitHub because the user has no Android Studio. Normal web builds stay SSR.
