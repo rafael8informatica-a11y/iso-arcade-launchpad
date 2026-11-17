@@ -11,7 +11,7 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { VitePWA } from "vite-plugin-pwa";
 
 // CAPACITOR_BUILD=1 builds a static copy (index.html + assets) for the Android app.
-const isCapacitor = process.env.CAPACITOR_BUILD === "1";
+const isCapacitor = process.env["CAPACITOR_BUILD"] === "1";
 
 export default defineConfig({
   tanstackStart: {
