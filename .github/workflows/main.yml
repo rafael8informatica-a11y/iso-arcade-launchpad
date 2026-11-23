@@ -47,7 +47,11 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Copiar a interface para o projeto Android
-        run: bunx cap sync android
+        run: |
+          if [ ! -d "android" ]; then
+            bunx cap add android
+          fi
+          bunx cap sync android
 
       - name: Compilar o APK
         working-directory: android
