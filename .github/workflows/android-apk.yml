@@ -62,7 +62,6 @@ jobs:
           </html>
           EOF
           fi
-          # Garante que dist/ tenha o index.html e assets exigidos pelo Capacitor
           if [ ! -f "dist/index.html" ]; then
             cp -r dist/client/* dist/
           fi
@@ -74,7 +73,7 @@ jobs:
           java-version: 21
 
       - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Cache do Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -89,6 +88,7 @@ jobs:
       - name: Compilar o APK
         working-directory: android
         run: |
+          sed -i 's/s\.getBool("vibration", true)/(s.getBool("vibration") != null ? s.getBool("vibration") : true)/g' app/src/main/java/com/nebula2/emulador/Ps2CorePlugin.java
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
