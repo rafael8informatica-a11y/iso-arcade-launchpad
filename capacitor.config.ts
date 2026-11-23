@@ -5,7 +5,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 const config: CapacitorConfig = {
   appId: "com.nebula2.emulador",
   appName: "NEBULA·2",
-  webDir: "dist/client",
+  webDir: "dist",
   backgroundColor: "#0a1020",
   android: { allowMixedContent: false },
 };
