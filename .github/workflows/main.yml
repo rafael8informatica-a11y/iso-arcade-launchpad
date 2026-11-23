@@ -12,16 +12,15 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
-
     steps:
       - name: Baixar código do repositório
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Configurar Bun
         uses: oven-sh/setup-bun@v2
 
       - name: Cache de dependências do Bun
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -29,13 +28,47 @@ jobs:
             ${{ runner.os }}-bun-
 
       - name: Instalar dependências
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Exportar a interface como arquivos locais
-        run: CAPACITOR_BUILD=1 bunx vite build
+        run: |
+          CAPACITOR_BUILD=1 bun run build
+          mkdir -p dist/client
+          if [ -d ".output/public" ] && [ ! -d "dist/client/assets" ]; then
+            cp -r .output/public/* dist/client/
+          fi
+          if [ ! -f "dist/client/index.html" ]; then
+            CSS_TAG=""
+            JS_TAG=""
+            for f in dist/client/assets/*.css; do
+              [ -e "$f" ] && CSS_TAG="$CSS_TAG<link rel=\"stylesheet\" href=\"./assets/$(basename "$f")\">"
+            done
+            for f in dist/client/assets/*.js; do
+              [ -e "$f" ] && JS_TAG="$JS_TAG<script type=\"module\" src=\"./assets/$(basename "$f")\"></script>"
+            done
+            cat <<EOF > dist/client/index.html
+          <!doctype html>
+          <html lang="pt-BR">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+              <title>NEBULA·2</title>
+              $CSS_TAG
+            </head>
+            <body>
+              <div id="root"></div>
+              $JS_TAG
+            </body>
+          </html>
+          EOF
+          fi
+          # Garante que dist/ tenha o index.html e assets exigidos pelo Capacitor
+          if [ ! -f "dist/index.html" ]; then
+            cp -r dist/client/* dist/
+          fi
 
       - name: Configurar Java 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
@@ -57,10 +90,10 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Enviar APK como artefato
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: nebula2-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
