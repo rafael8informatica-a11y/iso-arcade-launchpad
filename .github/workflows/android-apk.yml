@@ -33,10 +33,35 @@ jobs:
 
       - name: Exportar a interface como arquivos locais
         run: |
-          CAPACITOR_BUILD=1 bunx vite build
-          if [ ! -f "dist/client/index.html" ] && [ -f "dist/index.html" ]; then
-            mkdir -p dist/client
-            find dist -maxdepth 1 ! -name 'client' ! -name 'dist' -exec mv {} dist/client/ \;
+          CAPACITOR_BUILD=1 bun run build
+          mkdir -p dist/client
+          if [ -d ".output/public" ] && [ ! -d "dist/client/assets" ]; then
+            cp -r .output/public/* dist/client/
+          fi
+          if [ ! -f "dist/client/index.html" ]; then
+            CSS_TAG=""
+            JS_TAG=""
+            for f in dist/client/assets/*.css; do
+              [ -e "$f" ] && CSS_TAG="$CSS_TAG<link rel=\"stylesheet\" href=\"/assets/$(basename "$f")\">"
+            done
+            for f in dist/client/assets/*.js; do
+              [ -e "$f" ] && JS_TAG="$JS_TAG<script type=\"module\" src=\"/assets/$(basename "$f")\"></script>"
+            done
+            cat <<EOF > dist/client/index.html
+          <!doctype html>
+          <html lang="pt-BR">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+              <title>NEBULA·2</title>
+              $CSS_TAG
+            </head>
+            <body>
+              <div id="root"></div>
+              $JS_TAG
+            </body>
+          </html>
+          EOF
           fi
 
       - name: Configurar Java 21
@@ -70,4 +95,3 @@ jobs:
           name: nebula2-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-
