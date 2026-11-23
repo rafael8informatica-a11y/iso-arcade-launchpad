@@ -1,224 +1,545 @@
-import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+package com.nebula2.emulador;
 
-export type PadButton =
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.res.AssetManager;
+import android.database.Cursor;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.ParcelFileDescriptor;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.provider.OpenableColumns;
+import android.view.InputDevice;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.webkit.WebView;
 
-  | "up" | "down" | "left" | "right"
-  | "triangle" | "circle" | "cross" | "square"
-  | "l1" | "l2" | "l3" | "r1" | "r2" | "r3"
-  | "start" | "select";
+import androidx.activity.result.ActivityResult;
 
-export type Stick = "left" | "right";
+import com.armsx2.BiosInfo;
+import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
+import com.getcapacitor.annotation.CapacitorPlugin;
 
-export type BootOptions = {
-  canvas: HTMLCanvasElement;
-  iso: File & { uri?: string; path?: string };
-  bios: (File & { uri?: string; path?: string; name?: string }) | null;
-  settings: Record<string, unknown>;
-  onStatus?: (status: string) => void;
-  onFps?: (fps: number) => void;
-};
+import org.libsdl.app.SDL;
+import org.libsdl.app.SDLControllerManager;
 
-export interface EmulatorCore {
-  boot(opts: BootOptions): Promise<void>;
-  pause(): void;
-  resume(): void;
-  stop(): void;
-  setButton(button: PadButton, pressed: boolean): void;
-  /** x e y entre -1 e 1 */
-  setAnalog(stick: Stick, x: number, y: number): void;
-  saveState(slot: number): Promise<void>;
-  loadState(slot: number): Promise<void>;
-}
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
-/** Códigos Android KeyEvent esperados pelo núcleo ARMSX2 (Ps2CorePlugin.java) */
-export const PS2_KEYS: Record<PadButton, number> = {
-  up: 19,       // KEYCODE_DPAD_UP
-  down: 20,     // KEYCODE_DPAD_DOWN
-  left: 21,     // KEYCODE_DPAD_LEFT
-  right: 22,    // KEYCODE_DPAD_RIGHT
-  cross: 96,    // KEYCODE_BUTTON_A (X)
-  circle: 97,   // KEYCODE_BUTTON_B (O)
-  square: 99,   // KEYCODE_BUTTON_X (Quadrado)
-  triangle: 100,// KEYCODE_BUTTON_Y (Triângulo)
-  l1: 102,      // KEYCODE_BUTTON_L1
-  r1: 103,      // KEYCODE_BUTTON_R1
-  l2: 104,      // KEYCODE_BUTTON_L2
-  r2: 105,      // KEYCODE_BUTTON_R2
-  l3: 106,      // KEYCODE_BUTTON_THUMBL
-  r3: 107,      // KEYCODE_BUTTON_THUMBR
-  start: 108,   // KEYCODE_BUTTON_START
-  select: 109,  // KEYCODE_BUTTON_SELECT
-};
+import kr.co.iefriends.pcsx2.NativeApp;
 
-interface Ps2CoreNativePlugin {
-  status(): Promise<{ loaded: boolean; error?: string; running: boolean }>;
-  pickIsos(opts?: { multiple?: boolean }): Promise<{ files: Array<{ uri: string; name: string; size: number }> }>;
-  pickBios(): Promise<{ name?: string; description?: string }>;
-  boot(opts: { uri: string; bios?: string | null; settings?: Record<string, unknown> }): Promise<void>;
-  stop(): Promise<void>;
-  pause(): Promise<void>;
-  resume(): Promise<void>;
-  saveState(opts: { slot: number }): Promise<void>;
-  loadState(opts: { slot: number }): Promise<void>;
-  setButton(opts: { key: number; pressed: boolean }): Promise<void>;
-  setAnalog(opts: { stick: Stick; x: number; y: number }): Promise<void>;
-  addListener(eventName: "fps", cb: (data: { fps: number }) => void): Promise<PluginListenerHandle>;
-  addListener(eventName: "status", cb: (data: { text: string }) => void): Promise<PluginListenerHandle>;
-  addListener(eventName: "paused", cb: (data: { paused: boolean }) => void): Promise<PluginListenerHandle>;
-  addListener(eventName: "ended", cb: (data: { ok: boolean; error?: string }) => void): Promise<PluginListenerHandle>;
-}
+@CapacitorPlugin(name = "Ps2Core")
+public class Ps2CorePlugin extends Plugin {
+    private static volatile Ps2CorePlugin sInstance;
 
-export const Ps2Core = registerPlugin<Ps2CoreNativePlugin>("Ps2Core");
+    private final Object initLock = new Object();
+    private boolean initialized = false;
+    private String initError = null;
 
-/** Implementação nativa conectada ao ARMSX2 no Android */
-function createNativeCore(): EmulatorCore {
-  const listeners: PluginListenerHandle[] = [];
+    private SurfaceView surfaceView;
+    private volatile boolean surfaceReady = false;
+    private CountDownLatch surfaceLatch;
+    private Thread emuThread;
+    private volatile boolean running = false;
+    private volatile boolean userPaused = false;
+    private boolean vibration = true;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Runnable fpsTick = new Runnable() {
+        @Override public void run() {
+            if (!running) return;
+            try {
+                JSObject o = new JSObject();
+                o.put("fps", Math.round(NativeApp.getFPS()));
+                notifyListeners("fps", o);
+            } catch (Throwable ignored) {}
+            main.postDelayed(this, 1000);
+        }
+    };
 
-  const clearListeners = async () => {
-    while (listeners.length > 0) {
-      const h = listeners.pop();
-      await h?.remove().catch(() => {});
+    @Override
+    public void load() {
+        sInstance = this;
     }
-  };
 
-  return {
-    async boot({ canvas, iso, bios, settings, onStatus, onFps }) {
-      await clearListeners();
+    @PluginMethod
+    public void status(PluginCall call) {
+        JSObject o = new JSObject();
+        o.put("loaded", NativeApp.loaded);
+        o.put("error", NativeApp.loaded ? null : NativeApp.loadError);
+        o.put("running", running);
+        call.resolve(o);
+    }
 
-      // Limpa o canvas e garante fundo transparente para o SurfaceView nativo aparecer atrás do WebView
-      const ctx = canvas.getContext("2d");
-      ctx?.clearRect(0, 0, canvas.width, canvas.height);
-      document.documentElement.style.background = "transparent";
-      document.body.style.background = "transparent";
+    @PluginMethod
+    public void pickIsos(PluginCall call) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, call.getBoolean("multiple", true));
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(call, i, "onIsosPicked");
+    }
 
-      listeners.push(
-        await Ps2Core.addListener("status", ({ text }) => onStatus?.(text)),
-        await Ps2Core.addListener("fps", ({ fps }) => onFps?.(fps)),
-        await Ps2Core.addListener("ended", ({ ok, error }) => {
-          if (!ok && error) onStatus?.(`Erro: ${error}`);
-        })
-      );
-
-      // Obtém a URI persistente do Android (content://...) ou caminho do arquivo
-      const isoUri = iso.uri || iso.path || (iso as unknown as { webkitRelativePath?: string }).webkitRelativePath || iso.name;
-      const biosName = bios?.name ?? (typeof settings.bios === "string" ? settings.bios : null);
-
-      try {
-        const st = await Ps2Core.status();
-        if (!st.loaded) {
-          onStatus?.(`Núcleo nativo indisponível: ${st.error || "bibliotecas .so ausentes"}`);
-          return;
+    @ActivityCallback
+    private void onIsosPicked(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        JSArray files = new JSArray();
+        Intent data = result.getData();
+        if (result.getResultCode() == Activity.RESULT_OK && data != null) {
+            if (data.getClipData() != null) {
+                for (int n = 0; n < data.getClipData().getItemCount(); n++) {
+                    JSObject f = describe(data.getClipData().getItemAt(n).getUri());
+                    if (f != null) files.put(f);
+                }
+            } else if (data.getData() != null) {
+                JSObject f = describe(data.getData());
+                if (f != null) files.put(f);
+            }
         }
-        if (st.running) {
-          await Ps2Core.stop();
+        JSObject o = new JSObject();
+        o.put("files", files);
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void pickBios(PluginCall call) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        startActivityForResult(call, i, "onBiosPicked");
+    }
+
+    @ActivityCallback
+    private void onBiosPicked(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Intent data = result.getData();
+        if (result.getResultCode() != Activity.RESULT_OK || data == null || data.getData() == null) {
+            call.resolve(new JSObject());
+            return;
         }
+        final Uri uri = data.getData();
+        new Thread(() -> {
+            try {
+                ensureInit();
+                String name = displayName(uri);
+                if (name == null || name.isEmpty()) name = "bios.bin";
+                name = name.replaceAll("[\\\\/:*?\"<>|]", "_");
+                File dir = biosDir();
+                dir.mkdirs();
+                File dest = new File(dir, name);
+                try (InputStream in = getContext().getContentResolver().openInputStream(uri);
+                     OutputStream out = new FileOutputStream(dest)) {
+                    if (in == null) throw new Exception("Não deu para abrir o arquivo.");
+                    copy(in, out);
+                }
+                BiosInfo info = null;
+                if (NativeApp.loaded) {
+                    ParcelFileDescriptor pfd = ParcelFileDescriptor.open(dest, ParcelFileDescriptor.MODE_READ_ONLY);
+                    info = NativeApp.getBiosInfoFromFd(pfd.detachFd());
+                    if (info == null) {
+                        dest.delete();
+                        call.reject("Esse arquivo não é uma BIOS de PS2.");
+                        return;
+                    }
+                }
+                JSObject o = new JSObject();
+                o.put("name", name);
+                if (info != null) o.put("description", info.description + " " + info.versionString());
+                call.resolve(o);
+            } catch (Throwable t) {
+                call.reject("Não deu para copiar a BIOS: " + t.getMessage());
+            }
+        }, "bios-copy").start();
+    }
 
-        await Ps2Core.boot({
-          uri: isoUri,
-          bios: biosName,
-          settings,
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        onStatus?.(`Falha ao iniciar: ${msg}`);
-        throw err;
-      }
-    },
+    private JSObject describe(Uri uri) {
+        try {
+            getContext().getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Throwable ignored) {}
+        JSObject f = new JSObject();
+        f.put("uri", uri.toString());
+        String name = displayName(uri);
+        f.put("name", name != null ? name : uri.getLastPathSegment());
+        f.put("size", size(uri));
+        return f;
+    }
 
-    pause() {
-      Ps2Core.pause().catch(() => {});
-    },
+    private String displayName(Uri uri) {
+        try (Cursor c = getContext().getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst()) return c.getString(0);
+        } catch (Throwable ignored) {}
+        return null;
+    }
 
-    resume() {
-      Ps2Core.resume().catch(() => {});
-    },
+    private long size(Uri uri) {
+        try (Cursor c = getContext().getContentResolver().query(uri, new String[]{OpenableColumns.SIZE}, null, null, null)) {
+            if (c != null && c.moveToFirst() && !c.isNull(0)) return c.getLong(0);
+        } catch (Throwable ignored) {}
+        return 0;
+    }
 
-    stop() {
-      clearListeners();
-      document.documentElement.style.background = "";
-      document.body.style.background = "";
-      Ps2Core.stop().catch(() => {});
-    },
+    private File dataDir() {
+        File d = getContext().getExternalFilesDir(null);
+        return d != null ? d : getContext().getFilesDir();
+    }
 
-    setButton(button, pressed) {
-      const key = PS2_KEYS[button];
-      if (key !== undefined) {
-        Ps2Core.setButton({ key, pressed }).catch(() => {});
-      }
-    },
+    private File biosDir() {
+        return new File(dataDir(), "bios");
+    }
 
-    setAnalog(stick, x, y) {
-      Ps2Core.setAnalog({ stick, x, y }).catch(() => {});
-    },
+    private void ensureInit() throws Exception {
+        synchronized (initLock) {
+            if (initialized) return;
+            if (initError != null) throw new Exception(initError);
+            if (!NativeApp.loaded) {
+                initError = "O núcleo do emulador não veio dentro do app (" + NativeApp.loadError + ").";
+                throw new Exception(initError);
+            }
+            Context ctx = getContext();
+            File data = dataDir();
+            long stamp = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).lastUpdateTime;
+            File marker = new File(data, ".resources-" + stamp);
+            if (!marker.exists()) {
+                copyAssets(ctx.getAssets(), "resources", new File(data, "resources"));
+                marker.createNewFile();
+            }
+            biosDir().mkdirs();
+            NativeApp.initializeOnce(ctx, data.getAbsolutePath(), biosDir().getAbsolutePath());
+            Activity act = getActivity();
+            if (act != null) SDL.setContext(act);
+            SDLControllerManager.nativeSetupJNI();
+            SDLControllerManager.initialize();
+            NativeApp.pauseListener = paused -> {
+                JSObject o = new JSObject();
+                o.put("paused", paused);
+                notifyListeners("paused", o);
+            };
+            NativeApp.rumbleListener = this::rumble;
+            initialized = true;
+        }
+    }
 
-    async saveState(slot) {
-      await Ps2Core.saveState({ slot });
-    },
+    private static void copyAssets(AssetManager am, String path, File dest) throws Exception {
+        String[] list = am.list(path);
+        if (list == null || list.length == 0) {
+            dest.getParentFile().mkdirs();
+            try (InputStream in = am.open(path); OutputStream out = new FileOutputStream(dest)) {
+                copy(in, out);
+            }
+            return;
+        }
+        dest.mkdirs();
+        for (String child : list) copyAssets(am, path + "/" + child, new File(dest, child));
+    }
 
-    async loadState(slot) {
-      await Ps2Core.loadState({ slot });
-    },
-  };
+    private static void copy(InputStream in, OutputStream out) throws java.io.IOException {
+        byte[] buf = new byte[64 * 1024];
+        int r;
+        while ((r = in.read(buf)) != -1) out.write(buf, 0, r);
+    }
+
+    private void applySettings(JSObject s, String biosName) {
+        if (biosName != null && !biosName.isEmpty()) {
+            NativeApp.setSetting("Filenames", "BIOS", "string", biosName);
+        }
+        NativeApp.commitSettings();
+        String renderer = s.getString("renderer", "vulkan");
+        if ("opengl".equals(renderer)) NativeApp.renderOpenGL();
+        else if ("software".equals(renderer)) NativeApp.renderSoftware();
+        else NativeApp.renderVulkan();
+        float scale = 2f;
+        try { scale = Float.parseFloat(s.getString("resolution", "2")); } catch (Exception ignored) {}
+        NativeApp.renderUpscalemultiplier(scale);
+        String aspect = s.getString("aspect", "4:3");
+        NativeApp.setAspectRatio("stretch".equals(aspect) ? 0 : "16:9".equals(aspect) ? 3 : 2);
+        NativeApp.setFrameSkip(s.getInteger("frameSkip", 0));
+        NativeApp.setAudioVolume(s.getInteger("volume", 80));
+        int ee = 0;
+        try { ee = Integer.parseInt(s.getString("eeCycleRate", "0")); } catch (Exception ignored) {}
+        NativeApp.speedhackEecyclerate(ee);
+        Boolean vib = s.getBool("vibration");
+        vibration = vib != null ? vib : true;
+    }
+
+    @PluginMethod
+    public void boot(PluginCall call) {
+        final String uri = call.getString("uri");
+        if (uri == null || uri.isEmpty()) {
+            call.reject("Nenhum jogo escolhido.");
+            return;
+        }
+        if (running) {
+            call.reject("Já existe um jogo rodando.");
+            return;
+        }
+        final JSObject settings = call.getObject("settings", new JSObject());
+        final String biosName = call.getString("bios");
+        try {
+            ensureInit();
+        } catch (Throwable t) {
+            call.reject(t.getMessage());
+            return;
+        }
+        surfaceLatch = new CountDownLatch(1);
+        main.post(this::showSurface);
+        running = true;
+        userPaused = false;
+        emitStatus("Iniciando…");
+        emuThread = new Thread(() -> {
+            try {
+                surfaceLatch.await(5, TimeUnit.SECONDS);
+                applySettings(settings, biosName);
+                main.post(fpsTick);
+                emitStatus("Rodando");
+                boolean ok = NativeApp.runVMThread(uri);
+                String err = ok ? null : NativeApp.getLastBootError();
+                JSObject o = new JSObject();
+                o.put("ok", ok);
+                o.put("error", err != null && !err.isEmpty() ? err : null);
+                emitStatus(ok ? "Jogo encerrado" : "Não abriu: " + (err != null && !err.isEmpty() ? err : "verifique a BIOS e a ISO"));
+                notifyListeners("ended", o);
+            } catch (Throwable t) {
+                emitStatus("Erro: " + t.getMessage());
+            } finally {
+                running = false;
+            }
+        }, "nebula2-emu");
+        emuThread.start();
+        call.resolve();
+    }
+
+    private void emitStatus(String text) {
+        JSObject o = new JSObject();
+        o.put("text", text);
+        notifyListeners("status", o);
+    }
+
+    private void showSurface() {
+        Activity act = getActivity();
+        WebView web = getBridge().getWebView();
+        if (act == null || web == null) return;
+        if (surfaceView == null) {
+            surfaceView = new SurfaceView(act);
+            surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
+                @Override public void surfaceCreated(SurfaceHolder holder) {
+                    surfaceReady = true;
+                    NativeApp.onNativeSurfaceCreated();
+                }
+                @Override public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
+                    NativeApp.onNativeSurfaceChanged(holder.getSurface(), w, h);
+                    CountDownLatch l = surfaceLatch;
+                    if (l != null) l.countDown();
+                }
+                @Override public void surfaceDestroyed(SurfaceHolder holder) {
+                    surfaceReady = false;
+                    NativeApp.onNativeSurfaceDestroyed();
+                }
+            });
+        }
+        if (surfaceView.getParent() == null) {
+            ViewGroup parent = (ViewGroup) web.getParent();
+            parent.addView(surfaceView, 0, new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        web.setBackgroundColor(Color.TRANSPARENT);
+        act.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        act.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    }
+
+    private void hideSurface() {
+        Activity act = getActivity();
+        WebView web = getBridge().getWebView();
+        if (surfaceView != null && surfaceView.getParent() != null) {
+            ((ViewGroup) surfaceView.getParent()).removeView(surfaceView);
+        }
+        if (web != null) web.setBackgroundColor(Color.parseColor("#0a1020"));
+        if (act != null) {
+            act.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            act.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        }
+    }
+
+    @PluginMethod
+    public void stop(PluginCall call) {
+        main.removeCallbacks(fpsTick);
+        new Thread(() -> {
+            try {
+                if (NativeApp.loaded && (running || NativeApp.hasActiveVM())) NativeApp.shutdown();
+                Thread t = emuThread;
+                if (t != null) t.join(3000);
+            } catch (Throwable ignored) {
+            } finally {
+                emuThread = null;
+                running = false;
+                main.post(this::hideSurface);
+                call.resolve();
+            }
+        }, "nebula2-stop").start();
+    }
+
+    @PluginMethod
+    public void pause(PluginCall call) {
+        userPaused = true;
+        if (running) NativeApp.pause();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void resume(PluginCall call) {
+        userPaused = false;
+        if (running) NativeApp.resume();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void saveState(PluginCall call) {
+        final int slot = call.getInt("slot", 1);
+        new Thread(() -> {
+            boolean ok = running && NativeApp.saveStateToSlot(slot);
+            if (ok) call.resolve(); else call.reject("Não deu para salvar no slot " + slot + ".");
+        }, "nebula2-save").start();
+    }
+
+    @PluginMethod
+    public void loadState(PluginCall call) {
+        final int slot = call.getInt("slot", 1);
+        new Thread(() -> {
+            boolean ok = running && NativeApp.loadStateFromSlot(slot);
+            if (ok) call.resolve(); else call.reject("O slot " + slot + " está vazio.");
+        }, "nebula2-load").start();
+    }
+
+    @PluginMethod
+    public void setButton(PluginCall call) {
+        int key = call.getInt("key", -1);
+        boolean pressed = call.getBoolean("pressed", false);
+        if (running && key >= 0) NativeApp.setPadButton(key, 0, pressed);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setAnalog(PluginCall call) {
+        boolean left = !"right".equals(call.getString("stick", "left"));
+        double x = call.getDouble("x", 0.0);
+        double y = call.getDouble("y", 0.0);
+        if (running) sendStick(left, (float) x, (float) y);
+        call.resolve();
+    }
+
+    private static void sendAxis(int negKey, int posKey, float v) {
+        final float dead = 0.08f;
+        int range = (int) Math.min(32767, Math.abs(v) * 32767);
+        if (v > dead) {
+            NativeApp.setPadButton(negKey, 0, false);
+            NativeApp.setPadButton(posKey, range, true);
+        } else if (v < -dead) {
+            NativeApp.setPadButton(posKey, 0, false);
+            NativeApp.setPadButton(negKey, range, true);
+        } else {
+            NativeApp.setPadButton(negKey, 0, false);
+            NativeApp.setPadButton(posKey, 0, false);
+        }
+    }
+
+    private static void sendStick(boolean left, float x, float y) {
+        if (left) {
+            sendAxis(113, 111, x);
+            sendAxis(110, 112, y);
+        } else {
+            sendAxis(123, 121, x);
+            sendAxis(120, 122, y);
+        }
+    }
+
+    static boolean handleKey(KeyEvent e) {
+        Ps2CorePlugin p = sInstance;
+        if (p == null || !p.running) return false;
+        int src = e.getSource();
+        boolean pad = (src & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+                || (src & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
+                || (src & InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD;
+        if (!pad) return false;
+        int k = e.getKeyCode();
+        boolean known = (k >= 19 && k <= 22) || (k >= 96 && k <= 109 && k != 98 && k != 101);
+        if (!known) return false;
+        if (e.getRepeatCount() == 0) {
+            NativeApp.setPadButton(k, 0, e.getAction() == KeyEvent.ACTION_DOWN);
+        }
+        return true;
+    }
+
+    static boolean handleMotion(MotionEvent e) {
+        Ps2CorePlugin p = sInstance;
+        if (p == null || !p.running) return false;
+        if ((e.getSource() & InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK) return false;
+        sendStick(true, e.getAxisValue(MotionEvent.AXIS_X), e.getAxisValue(MotionEvent.AXIS_Y));
+        sendStick(false, e.getAxisValue(MotionEvent.AXIS_Z), e.getAxisValue(MotionEvent.AXIS_RZ));
+        float hx = e.getAxisValue(MotionEvent.AXIS_HAT_X);
+        float hy = e.getAxisValue(MotionEvent.AXIS_HAT_Y);
+        NativeApp.setPadButton(21, 0, hx < -0.5f);
+        NativeApp.setPadButton(22, 0, hx > 0.5f);
+        NativeApp.setPadButton(19, 0, hy < -0.5f);
+        NativeApp.setPadButton(20, 0, hy > 0.5f);
+        float lt = Math.max(e.getAxisValue(MotionEvent.AXIS_LTRIGGER), e.getAxisValue(MotionEvent.AXIS_BRAKE));
+        float rt = Math.max(e.getAxisValue(MotionEvent.AXIS_RTRIGGER), e.getAxisValue(MotionEvent.AXIS_GAS));
+        NativeApp.setPadButton(104, 0, lt > 0.5f);
+        NativeApp.setPadButton(105, 0, rt > 0.5f);
+        return true;
+    }
+
+    private void rumble(int pad, int large, int small) {
+        if (!vibration || pad != 0) return;
+        Context ctx = getContext();
+        if (ctx == null) return;
+        Vibrator v = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+        if (v == null || !v.hasVibrator()) return;
+        int amp = Math.min(255, (int) (0.6f * large + 0.4f * small));
+        if (amp <= 0) {
+            v.cancel();
+        } else if (android.os.Build.VERSION.SDK_INT >= 26) {
+            v.vibrate(VibrationEffect.createOneShot(3000, Math.max(1, amp)));
+        }
+    }
+
+    @Override
+    protected void handleOnPause() {
+        super.handleOnPause();
+        if (running) {
+            try { NativeApp.pause(); NativeApp.flushShaderCache(); } catch (Throwable ignored) {}
+        }
+    }
+
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        if (running && !userPaused) {
+            try { NativeApp.resume(); } catch (Throwable ignored) {}
+        }
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (running) {
+            try { NativeApp.shutdown(); } catch (Throwable ignored) {}
+        }
+        super.handleOnDestroy();
+    }
 }
-
-/** Implementação de demonstração (usada apenas quando aberto no navegador Web fora do Android) */
-function createStubCore(): EmulatorCore {
-  let raf = 0;
-  let paused = false;
-  const pressed = new Set<PadButton>();
-
-  return {
-    async boot({ canvas, iso, onStatus, onFps }) {
-      onStatus?.(`Modo Web (sem Android) — ${iso.name}`);
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      let t = 0;
-      let last = performance.now();
-      let frames = 0;
-      const draw = (now: number) => {
-        raf = requestAnimationFrame(draw);
-        if (paused) return;
-        frames++;
-        if (now - last >= 1000) {
-          onFps?.(frames);
-          frames = 0;
-          last = now;
-        }
-        t += 0.01;
-        const { width: w, height: h } = canvas;
-        ctx.fillStyle = "#03060d";
-        ctx.fillRect(0, 0, w, h);
-        for (let i = 0; i < 9; i++) {
-          const x = (w / 10) * (i + 1);
-          const hh = h * (0.2 + 0.5 * Math.abs(Math.sin(t + i * 0.8)));
-          const g = ctx.createLinearGradient(x, h, x, h - hh);
-          g.addColorStop(0, "rgba(80,170,255,0.55)");
-          g.addColorStop(1, "rgba(80,170,255,0)");
-          ctx.fillStyle = g;
-          ctx.fillRect(x - w / 60, h - hh, w / 30, hh);
-        }
-        ctx.fillStyle = "rgba(220,235,255,0.85)";
-        ctx.font = `${Math.round(h / 22)}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.fillText("Abra o APK no Android para rodar o núcleo PS2", w / 2, h / 2);
-        ctx.fillStyle = "rgba(120,190,255,0.8)";
-        ctx.fillText(pressed.size ? [...pressed].join(" + ").toUpperCase() : "", w / 2, h / 2 + h / 12);
-      };
-      raf = requestAnimationFrame(draw);
-    },
-    pause() { paused = true; },
-    resume() { paused = false; },
-    stop() { cancelAnimationFrame(raf); pressed.clear(); },
-    setButton(button, isDown) {
-      if (isDown) pressed.add(button); else pressed.delete(button);
-    },
-    setAnalog() {},
-    async saveState(slot) { console.info("[emulator] saveState", slot); },
-    async loadState(slot) { console.info("[emulator] loadState", slot); },
-  };
-}
-
-export const emulator: EmulatorCore = Capacitor.isNativePlatform()
-  ? createNativeCore()
-  : createStubCore();
-
