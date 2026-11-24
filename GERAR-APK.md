@@ -17,8 +17,8 @@ O APK funciona 100% offline: a interface fica dentro do app, não precisa de int
 ## O que tem no projeto para isso
 
 - `capacitor.config.ts` — nome e identificador do app (`com.nebula2.emulador`).
-- `android/` — projeto Android. É aqui que o `.so` do núcleo e a ponte nativa entram depois
-  (`android/app/src/main/jniLibs/arm64-v8a/` para o `.so`).
+- `android/` — projeto Android, já com a ponte para o núcleo ARMSX2.
+- `scripts/fetch-armsx2-core.sh` — baixa o núcleo oficial do ARMSX2 durante a montagem.
 - `.github/workflows/android-apk.yml` — o passo a passo que o GitHub executa.
 
 ## Observações
@@ -28,5 +28,6 @@ O APK funciona 100% offline: a interface fica dentro do app, não precisa de int
   própria (release).
 - Cada execução gera uma chave de teste nova. Se o Android recusar atualizar por cima,
   desinstale a versão antiga antes de instalar a nova.
-- Os jogos ainda não rodam: o núcleo continua sendo o de demonstração
-  (veja `COMO-LIGAR-O-NUCLEO.md`).
+- O APK só roda em celulares Android 8 ou mais novos, com processador de 64 bits (ARM).
+- Use o APK da execução **Gerar APK Android** que roda `android-apk.yml`: é ela que baixa
+  o núcleo (veja `COMO-LIGAR-O-NUCLEO.md`).

@@ -8,7 +8,8 @@ import { AppHeader } from "@/components/emu/AppHeader";
 import { GameCard } from "@/components/emu/GameCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { addIsoFiles, ISO_ACCEPT, useGames, useSettings } from "@/lib/library";
+import { isNativeCore, pickNativeIsos } from "@/lib/emulator";
+import { addIsoFiles, addNativeIsos, ISO_ACCEPT, useGames, useSettings } from "@/lib/library";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -40,6 +41,21 @@ function LibraryPage() {
     if (!files?.length) return;
     const n = addIsoFiles(files);
     toast.success(n ? `${n} jogo(s) adicionado(s)` : "Jogo já estava na biblioteca");
+  };
+
+  // No APK os jogos vêm do seletor do Android, que guarda o acesso ao arquivo.
+  const importIsos = () => {
+    if (!isNativeCore) {
+      inputRef.current?.click();
+      return;
+    }
+    pickNativeIsos()
+      .then((picked) => {
+        if (!picked.length) return;
+        const n = addNativeIsos(picked);
+        toast.success(n ? `${n} jogo(s) adicionado(s)` : "Jogo já estava na biblioteca");
+      })
+      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : String(err)));
   };
 
   return (
@@ -75,7 +91,7 @@ function LibraryPage() {
             Importe suas ISOs e jogue com controle na tela ou um controle Bluetooth.
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
-            <Button variant="hero" size="xl" onClick={() => inputRef.current?.click()}>
+            <Button variant="hero" size="xl" onClick={importIsos}>
               <Plus /> Importar ISO
             </Button>
             <Button variant="glass" size="xl" asChild>
@@ -120,7 +136,7 @@ function LibraryPage() {
         {games.length === 0 ? (
           <button
             type="button"
-            onClick={() => inputRef.current?.click()}
+            onClick={importIsos}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();

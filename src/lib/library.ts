@@ -8,6 +8,8 @@ export type Game = {
   addedAt: number;
   lastPlayedAt: number | null;
   playMinutes: number;
+  /** No APK: link do arquivo no Android (content://), guardado entre aberturas. */
+  uri?: string;
 };
 
 export type Settings = {
@@ -129,6 +131,46 @@ export function addIsoFiles(files: FileList | File[]) {
   return added.length;
 }
 
+/** Jogos escolhidos pelo seletor do Android (só no APK). Retorna quantos são novos. */
+export function addNativeIsos(files: { uri: string; name: string; size: number }[]) {
+  load();
+  const added: Game[] = [];
+  for (const f of files) {
+    const existing = games.find((g) => g.uri === f.uri || (g.fileName === f.name && g.size === f.size));
+    if (existing) {
+      games = games.map((g) => (g.id === existing.id ? { ...g, uri: f.uri } : g));
+      continue;
+    }
+    added.push({
+      id: crypto.randomUUID(),
+      title: cleanTitle(f.name) || f.name,
+      fileName: f.name,
+      size: f.size,
+      addedAt: Date.now(),
+      lastPlayedAt: null,
+      playMinutes: 0,
+      uri: f.uri,
+    });
+  }
+  games = [...added, ...games];
+  emit();
+  return added.length;
+}
+
+export function relinkNativeIso(id: string, uri: string) {
+  games = games.map((g) => (g.id === id ? { ...g, uri } : g));
+  emit();
+}
+
+/** O que dá para abrir deste jogo agora: o arquivo da sessão ou o link guardado do Android. */
+export function getIsoSource(id: string): { name: string; uri?: string } | null {
+  load();
+  const file = isoFiles.get(id);
+  if (file) return file;
+  const game = games.find((g) => g.id === id);
+  return game?.uri ? { name: game.fileName, uri: game.uri } : null;
+}
+
 export function relinkIso(id: string, file: File) {
   isoFiles.set(id, file);
   listeners.forEach((l) => l());
@@ -169,6 +211,12 @@ export function updateSettings(patch: Partial<Settings>) {
 export function setBios(file: File | null) {
   biosFile = file;
   updateSettings({ biosName: file?.name ?? null });
+}
+
+/** BIOS já copiada para dentro do APK: só o nome é guardado. */
+export function setBiosName(name: string) {
+  biosFile = null;
+  updateSettings({ biosName: name });
 }
 
 export function getBios() {

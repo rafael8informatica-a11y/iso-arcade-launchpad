@@ -62,22 +62,6 @@ jobs:
             cp -r dist/client/* dist/
           fi
 
-      - name: Baixar núcleo nativo do Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p android/app/src/main/jniLibs/arm64-v8a
-          mkdir -p android/app/src/main/assets/resources
-          mkdir -p temp_core
-          gh release download nucleo-v1 -p "*.zip" -D temp_core
-          unzip -q temp_core/*.zip -d temp_core/extracted
-          find temp_core/extracted -name "*.so" -exec cp {} android/app/src/main/jniLibs/arm64-v8a/ \;
-          if [ -d "temp_core/extracted/resources" ]; then
-            cp -r temp_core/extracted/resources/* android/app/src/main/assets/resources/
-          fi
-          ls -lh android/app/src/main/jniLibs/arm64-v8a/
-          rm -rf temp_core
-
       - name: Configurar Java 21
         uses: actions/setup-java@v4
         with:
@@ -90,6 +74,9 @@ jobs:
       - name: Cache do Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Baixar o núcleo do emulador (ARMSX2)
+        run: bash scripts/fetch-armsx2-core.sh
+
       - name: Copiar a interface para o projeto Android
         run: |
           if [ ! -d "android" ]; then
@@ -100,7 +87,6 @@ jobs:
       - name: Compilar o APK
         working-directory: android
         run: |
-          sed -i 's/s\.getBool("vibration", true)/(s.getBool("vibration") != null ? s.getBool("vibration") : true)/g' app/src/main/java/com/nebula2/emulador/Ps2CorePlugin.java
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 

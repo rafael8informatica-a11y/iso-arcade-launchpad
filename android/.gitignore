@@ -99,3 +99,8 @@ app/src/main/assets/public
 app/src/main/assets/capacitor.config.json
 app/src/main/assets/capacitor.plugins.json
 app/src/main/res/xml/config.xml
+
+# ARMSX2 core, downloaded by scripts/fetch-armsx2-core.sh
+app/src/main/jniLibs/
+app/src/main/assets/resources/
+app/src/main/assets/licenses/

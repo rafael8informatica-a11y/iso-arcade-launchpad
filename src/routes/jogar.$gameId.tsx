@@ -17,8 +17,17 @@ import { toast } from "sonner";
 
 import { VirtualPad } from "@/components/emu/VirtualPad";
 import { Button } from "@/components/ui/button";
-import { emulator } from "@/lib/emulator";
-import { getBios, getIso, ISO_ACCEPT, markPlayed, relinkIso, useGames, useSettings } from "@/lib/library";
+import { emulator, isNativeCore, pickNativeIsos, type IsoSource } from "@/lib/emulator";
+import {
+  getBios,
+  getIsoSource,
+  ISO_ACCEPT,
+  markPlayed,
+  relinkIso,
+  relinkNativeIso,
+  useGames,
+  useSettings,
+} from "@/lib/library";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/jogar/$gameId")({
@@ -49,7 +58,7 @@ function PlayerPage() {
   const game = games.find((g) => g.id === gameId);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<IsoSource | null>(null);
   const [status, setStatus] = useState("Preparando…");
   const [fps, setFps] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -57,8 +66,8 @@ function PlayerPage() {
   const [slot, setSlot] = useState(1);
 
   useEffect(() => {
-    setFile(getIso(gameId));
-  }, [gameId]);
+    setFile(getIsoSource(gameId));
+  }, [gameId, game?.uri]);
 
   useEffect(() => {
     if (!file || !canvasRef.current) return;
@@ -119,6 +128,15 @@ function PlayerPage() {
             type="file"
             accept={ISO_ACCEPT}
             hidden
+            onClick={(e) => {
+              if (!isNativeCore) return;
+              e.preventDefault();
+              void pickNativeIsos(false)
+                .then(([picked]) => {
+                  if (picked) relinkNativeIso(gameId, picked.uri);
+                })
+                .catch((err: unknown) => toast.error(String(err instanceof Error ? err.message : err)));
+            }}
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) {
@@ -139,10 +157,14 @@ function PlayerPage() {
   }
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-screen">
+    <div className={cn("fixed inset-0 overflow-hidden", isNativeCore ? "bg-transparent" : "bg-screen")}>
       {/* Tela do jogo */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <canvas ref={canvasRef} className={cn("bg-screen object-contain", ASPECT_CLASS[settings.aspect])} />
+        {/* No APK o jogo aparece por trás da página (tela nativa); o canvas fica transparente. */}
+        <canvas
+          ref={canvasRef}
+          className={cn("object-contain", isNativeCore ? "bg-transparent" : "bg-screen", ASPECT_CLASS[settings.aspect])}
+        />
       </div>
 
       {/* Barra superior */}
@@ -217,8 +239,12 @@ function PlayerPage() {
                 <Button
                   variant="secondary"
                   onClick={async () => {
-                    await emulator.saveState(slot);
-                    toast.success(`Estado salvo no slot ${slot}`);
+                    try {
+                      await emulator.saveState(slot);
+                      toast.success(`Estado salvo no slot ${slot}`);
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : `Não deu para salvar no slot ${slot}`);
+                    }
                   }}
                 >
                   <Download /> Salvar
@@ -226,8 +252,12 @@ function PlayerPage() {
                 <Button
                   variant="secondary"
                   onClick={async () => {
-                    await emulator.loadState(slot);
-                    toast.success(`Slot ${slot} carregado`);
+                    try {
+                      await emulator.loadState(slot);
+                      toast.success(`Slot ${slot} carregado`);
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : `O slot ${slot} está vazio`);
+                    }
                   }}
                 >
                   <Upload /> Carregar

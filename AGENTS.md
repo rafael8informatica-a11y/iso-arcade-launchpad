@@ -31,7 +31,8 @@ use the editor.
 
 ## Project rules
 
-- The UI talks to the PS2 core only through the `emulator` object in `src/lib/emulator.ts` (currently a stub); swap the core there without touching screens, so the native/WASM core stays pluggable.
+- The UI talks to the PS2 core only through `src/lib/emulator.ts`: in the APK it calls the Capacitor plugin `Ps2Core` (Ps2CorePlugin.java), in the browser a demo stub, so screens never touch native code.
+- The native core is the official ARMSX2 release APK, pinned by version + SHA-256 in `scripts/fetch-armsx2-core.sh` and downloaded at APK build time (never committed); `kr.co.iefriends.pcsx2.NativeApp`, `com.armsx2.BiosInfo` and `org.libsdl.app.*` keep ARMSX2's exact names because the .so binds to them, so check new natives against the pinned version's exports.
 - Game list and settings persist in localStorage via `src/lib/library.ts`; ISO/BIOS files live only in memory per session because browsers can't reliably keep multi-GB files.
 - Offline mode uses vite-plugin-pwa (generateSW, client environment only, sw.js written to dist/client); the only registrar is src/lib/pwa.ts, which refuses dev, iframes and Lovable preview hosts so the editor preview never gets a stale cache.
 - Fonts are self-hosted via @fontsource (latin subsets) so the app renders offline.

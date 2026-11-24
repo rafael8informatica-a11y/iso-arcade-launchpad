@@ -8,10 +8,13 @@ export type PadButton =
 
 export type Stick = "left" | "right";
 
+/** Um jogo: um File do navegador ou, no APK, um link de arquivo do Android (content://). */
+export type IsoSource = { name: string; uri?: string; path?: string };
+
 export type BootOptions = {
   canvas: HTMLCanvasElement;
-  iso: File & { uri?: string; path?: string };
-  bios: (File & { uri?: string; path?: string; name?: string }) | null;
+  iso: IsoSource;
+  bios: { name: string } | null;
   settings: Record<string, unknown>;
   onStatus?: (status: string) => void;
   onFps?: (fps: number) => void;
@@ -95,8 +98,12 @@ function createNativeCore(): EmulatorCore {
         })
       );
 
-      const isoUri = iso.uri || iso.path || (iso as unknown as { webkitRelativePath?: string }).webkitRelativePath || iso.name;
-      const biosName = bios?.name ?? (typeof settings.bios === "string" ? settings.bios : null);
+      const isoUri = iso.uri || iso.path;
+      if (!isoUri) {
+        onStatus?.("Escolha o jogo de novo pelo botão do app.");
+        return;
+      }
+      const biosName = bios?.name ?? (typeof settings["biosName"] === "string" ? settings["biosName"] : null);
 
       try {
         const st = await Ps2Core.status();
@@ -212,6 +219,22 @@ function createStubCore(): EmulatorCore {
   };
 }
 
-export const emulator: EmulatorCore = Capacitor.isNativePlatform()
-  ? createNativeCore()
-  : createStubCore();
+/** true dentro do APK: jogos e BIOS são escolhidos pelo Android e rodam no núcleo ARMSX2. */
+export const isNativeCore = Capacitor.isNativePlatform();
+
+export type PickedFile = { uri: string; name: string; size: number };
+
+/** Abre o seletor de arquivos do Android. O app guarda o acesso, então não precisa escolher de novo. */
+export async function pickNativeIsos(multiple = true): Promise<PickedFile[]> {
+  const { files } = await Ps2Core.pickIsos({ multiple });
+  return files ?? [];
+}
+
+/** Copia a BIOS escolhida para dentro do app e confere se é uma BIOS de PS2. */
+export async function pickNativeBios(): Promise<{ name: string; description?: string } | null> {
+  const res = await Ps2Core.pickBios();
+  if (!res.name) return null;
+  return res.description ? { name: res.name, description: res.description } : { name: res.name };
+}
+
+export const emulator: EmulatorCore = isNativeCore ? createNativeCore() : createStubCore();

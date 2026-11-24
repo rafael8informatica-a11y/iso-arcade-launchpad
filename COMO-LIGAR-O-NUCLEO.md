@@ -1,83 +1,36 @@
-# Como ligar o núcleo do emulador
+# Núcleo do emulador (ARMSX2)
 
-A interface inteira já está pronta e **não precisa de nenhuma mudança**. Tudo que executa
-jogos passa por um único arquivo:
+O APK já vem com o núcleo do **ARMSX2 2.9.5** (emulador de PS2 para Android, baseado no
+PCSX2). Você não precisa colocar nenhum arquivo: na hora de montar o APK, o GitHub roda
+`scripts/fetch-armsx2-core.sh`, que baixa o APK oficial do ARMSX2, confere a assinatura
+(SHA-256) e copia de dentro dele:
+
+- `lib/arm64-v8a/libemucore_4k.so` e `libemucore_16k.so` (o núcleo; o app escolhe o certo
+  para o celular) e as bibliotecas que ele carrega;
+- `assets/resources/` (banco de jogos, shaders, fontes).
+
+## Como as partes se ligam
 
 ```
-src/lib/emulator.ts
+Tela (React)  →  src/lib/emulator.ts  →  plugin "Ps2Core" (Ps2CorePlugin.java)
+                                          →  NativeApp.java  →  libemucore_*.so
 ```
 
-Hoje esse arquivo contém um núcleo de demonstração (`createStubCore`): ele desenha uma tela
-de espera com o aviso "Conecte o núcleo do emulador". Para o app virar um emulador de
-verdade, troque **só** a implementação de `createStubCore`, mantendo o mesmo contrato.
+- `android/.../kr/co/iefriends/pcsx2/NativeApp.java` — a ponte que o núcleo exige. O nome do
+  pacote e da classe **não pode mudar**: o `.so` procura exatamente esse endereço.
+- `android/.../org/libsdl/app/` — classes do SDL que o núcleo registra ao carregar (controles).
+- `android/.../com/armsx2/BiosInfo.java` — o núcleo cria esse objeto ao conferir a BIOS.
+- `android/.../com/nebula2/emulador/Ps2CorePlugin.java` — escolhe ISO/BIOS pelo Android,
+  coloca a tela do jogo por trás da página, repassa botões, pausa e saves.
 
-## O contrato que o núcleo precisa cumprir
+No navegador (preview e site) continua o núcleo de demonstração.
 
-```ts
-export interface EmulatorCore {
-  boot(opts: BootOptions): Promise<void>;   // abre o ISO e começa a rodar
-  pause(): void;                            // congela a emulação
-  resume(): void;                           // volta de onde parou
-  stop(): void;                             // fecha o jogo e libera tudo
-  setButton(button: PadButton, pressed: boolean): void;
-  setAnalog(stick: Stick, x: number, y: number): void;   // -1 a 1 em cada eixo
-  saveState(slot: number): Promise<void>;   // slots 1 a 5
-  loadState(slot: number): Promise<void>;
-}
-```
+## Trocar a versão do ARMSX2
 
-`boot` recebe:
+A ponte foi conferida contra a 2.9.5. Para trocar, mude `VERSION` e `SHA256` no script e
+confira se as funções nativas usadas em `NativeApp.java` ainda existem na nova versão.
 
-| campo      | o que é                                                              |
-| ---------- | -------------------------------------------------------------------- |
-| `canvas`   | onde desenhar o jogo. Já vem com o tamanho certo (`640 × 480 × resolução`) |
-| `iso`      | o arquivo do jogo (`.iso`, `.bin`, `.chd`, `.cso`, `.img`, `.gz`)    |
-| `bios`     | o arquivo da BIOS, ou `null` se o jogador ainda não escolheu         |
-| `settings` | as preferências da tela de configurações (lista abaixo)              |
-| `onStatus` | texto curto que aparece na barra superior ("Iniciando...", "Rodando") |
-| `onFps`    | número de quadros por segundo, chamado ~1 vez por segundo            |
+## Licença
 
-Nomes dos botões (`PadButton`): `up`, `down`, `left`, `right`, `triangle`, `circle`,
-`cross`, `square`, `l1`, `l2`, `l3`, `r1`, `r2`, `r3`, `start`, `select`.
-Analógicos (`Stick`): `left` e `right`.
-
-## Onde cada parte da interface chama o núcleo
-
-- `src/routes/jogar.$gameId.tsx` — chama `boot` ao entrar no jogo e `stop` ao sair;
-  `pause`/`resume` no botão de pausa; `saveState`/`loadState` nos slots 1 a 5.
-- `src/components/emu/VirtualPad.tsx` — chama `setButton` e `setAnalog` em cada toque.
-- `src/lib/library.ts` — guarda a lista de jogos e as preferências; nada de emulação aqui.
-
-Nenhuma tela conhece o núcleo de verdade: todas só falam com o objeto `emulator`.
-
-## Preferências que chegam em `settings`
-
-`renderer` (`vulkan`/`opengl`/`software`), `resolution` (`1`–`4`), `aspect`
-(`4:3`/`16:9`/`stretch`), `frameSkip` (0–3), `volume` (0–100), `eeCycleRate` (`-2`–`2`),
-`speedHacks` (ligado/desligado), `showFps`, `padOpacity`, `padScale`, `vibration`,
-`biosName`.
-
-Os três últimos são só da tela (controle na tela e indicador de FPS) — o núcleo pode
-ignorar. O `volume` precisa ser aplicado pelo núcleo, porque o áudio é dele.
-
-## Dois pontos que valem atenção
-
-1. **`settings` só chega no `boot`.** Se o jogador mudar uma preferência no meio do jogo,
-   o núcleo não é avisado. Se quiser ajuste ao vivo, adicione um método tipo
-   `setSettings(s)` no contrato e chame-o na tela de jogo.
-2. **`stop` precisa limpar de verdade.** Ele roda quando o jogador sai do jogo, então
-   despeça áudio, threads/WASM e `requestAnimationFrame` aí, senão o som continua tocando.
-
-## Como testar sem um núcleo real
-
-O núcleo de demonstração já serve de teste de integração: os botões na tela aparecem no
-centro da tela de jogo, o contador de FPS sobe, a pausa congela a animação e os slots de
-salvar mostram o aviso no console. Se tudo isso funcionar com o seu núcleo no lugar do
-stub, a interface está coberta.
-
-## Para um APK de verdade
-
-O caminho mais curto é um núcleo nativo do Android (o Play! é de código aberto e tem
-versão Android) enrolado no app com Capacitor, e o plugin chamando esse núcleo a partir
-de `src/lib/emulator.ts`. Os arquivos ISO/BIOS ficam só na memória de cada sessão no
-navegador; num app nativo dá para guardá-los em disco e resolver esse ponto.
+O ARMSX2 é GPL-3.0. Ao distribuir o APK com o núcleo, o código do app também precisa ficar
+disponível sob GPL-3.0 (por exemplo, deixando o repositório público).

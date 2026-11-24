@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { defaultSettings, setBios, updateSettings, useSettings, type Settings } from "@/lib/library";
+import { toast } from "sonner";
+
+import { isNativeCore, pickNativeBios } from "@/lib/emulator";
+import { defaultSettings, setBios, setBiosName, updateSettings, useSettings, type Settings } from "@/lib/library";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -131,6 +134,18 @@ function SettingsPage() {
                 type="file"
                 accept=".bin,.rom,.rom0"
                 hidden
+                onClick={(e) => {
+                  // No APK a BIOS é copiada para dentro do app e conferida pelo núcleo.
+                  if (!isNativeCore) return;
+                  e.preventDefault();
+                  pickNativeBios()
+                    .then((bios) => {
+                      if (!bios) return;
+                      setBiosName(bios.name);
+                      toast.success(bios.description ? `BIOS pronta: ${bios.description}` : "BIOS pronta");
+                    })
+                    .catch((err: unknown) => toast.error(err instanceof Error ? err.message : String(err)));
+                }}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) setBios(f);
