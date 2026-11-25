@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { ReactNode } from "react";
-import { CheckCircle2, Cpu, Gamepad2, Monitor, Volume2, Zap } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { CheckCircle2, Cpu, Trash2, Gamepad2, Monitor, Volume2, Zap } from "lucide-react";
 
 import { AppHeader } from "@/components/emu/AppHeader";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
-import { isNativeCore, pickNativeBios } from "@/lib/emulator";
+import { isNativeCore, listGpuDrivers, pickGpuDriver, pickNativeBios, removeGpuDriver, type GpuDriver } from "@/lib/emulator";
 import { defaultSettings, setBios, setBiosName, updateSettings, useSettings, type Settings } from "@/lib/library";
 
 export const Route = createFileRoute("/configuracoes")({
@@ -93,12 +93,83 @@ function Range({ k, min, max, step = 1, unit = "" }: { k: "volume" | "padOpacity
   );
 }
 
-function Toggle({ k }: { k: "showFps" | "vibration" | "speedHacks" }) {
+function Toggle({ k }: { k: "showFps" | "vibration" | "speedHacks" | "mtvu" | "fastCdvd" | "skipDuplicateFrames" | "vsync" }) {
   const s = useSettings();
   return (
     <div className="flex sm:justify-end">
       <Switch checked={s[k]} onCheckedChange={(v) => updateSettings({ [k]: v })} />
     </div>
+  );
+}
+
+function DriverSection() {
+  const s = useSettings();
+  const [drivers, setDrivers] = useState<GpuDriver[]>([]);
+  const refresh = () => void listGpuDrivers().then(setDrivers).catch(() => {});
+  useEffect(refresh, []);
+
+  const select = (id: string) => {
+    const d = drivers.find((x) => x.id === id);
+    updateSettings({ gpuDriver: d?.id ?? null, gpuDriverName: d?.name ?? null });
+  };
+
+  return (
+    <Section icon={<Cpu className="size-4" />} title="Driver da GPU">
+      <Row label="Driver Vulkan" hint="Turnip (Adreno), MaliSX2 ou PanVK (Mali). Só vale no renderizador Vulkan.">
+        <Select value={s.gpuDriver ?? "system"} onValueChange={(v) => select(v === "system" ? "" : v)}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="system">Driver do sistema</SelectItem>
+            {drivers.map((d) => (
+              <SelectItem key={d.id} value={d.id}>
+                {d.name}
+                {d.version ? ` (${d.version})` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Row>
+      <div className="flex flex-wrap items-center justify-between gap-3 py-3 last:pb-0">
+        <p className="text-xs text-muted-foreground">
+          {isNativeCore ? "Instale o .zip do driver (formato AdrenoTools)." : "Disponível só no app Android."}
+        </p>
+        <div className="flex gap-2">
+          {s.gpuDriver && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const id = s.gpuDriver!;
+                void removeGpuDriver(id).then(() => {
+                  updateSettings({ gpuDriver: null, gpuDriverName: null });
+                  refresh();
+                });
+              }}
+            >
+              <Trash2 className="size-4" /> Remover
+            </Button>
+          )}
+          <Button
+            size="sm"
+            disabled={!isNativeCore}
+            onClick={() =>
+              void pickGpuDriver()
+                .then((d) => {
+                  if (!d) return;
+                  updateSettings({ gpuDriver: d.id, gpuDriverName: d.name, renderer: "vulkan" });
+                  refresh();
+                  toast.success(`Driver instalado: ${d.name}`);
+                })
+                .catch((err: unknown) => toast.error(err instanceof Error ? err.message : String(err)))
+            }
+          >
+            Instalar driver
+          </Button>
+        </div>
+      </div>
+    </Section>
   );
 }
 
@@ -198,6 +269,8 @@ function SettingsPage() {
           </Row>
         </Section>
 
+        <DriverSection />
+
         <Section icon={<Volume2 className="size-4" />} title="Áudio">
           <Row label="Volume">
             <Range k="volume" min={0} max={100} unit="%" />
@@ -229,8 +302,20 @@ function SettingsPage() {
               ]}
             />
           </Row>
-          <Row label="Speedhacks">
+          <Row label="Speedhacks" hint="VU1 instantâneo, detecção de loops e INTC">
             <Toggle k="speedHacks" />
+          </Row>
+          <Row label="VU1 em outra thread (MTVU)" hint="Grande ganho em celulares com 4+ núcleos">
+            <Toggle k="mtvu" />
+          </Row>
+          <Row label="Pular quadros repetidos" hint="Economiza GPU sem perder fluidez">
+            <Toggle k="skipDuplicateFrames" />
+          </Row>
+          <Row label="Carregamento rápido de disco" hint="Pode travar alguns jogos">
+            <Toggle k="fastCdvd" />
+          </Row>
+          <Row label="VSync" hint="Menos cortes na imagem, um pouco mais de atraso">
+            <Toggle k="vsync" />
           </Row>
         </Section>
 

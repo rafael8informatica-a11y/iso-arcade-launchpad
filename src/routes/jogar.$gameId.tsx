@@ -84,7 +84,14 @@ function PlayerPage() {
       onFps: setFps,
     });
     markPlayed(gameId);
+    // Partida sempre em tela cheia (no APK o Android já esconde as barras).
+    if (!isNativeCore) {
+      void goFullscreen();
+      const retry = () => void goFullscreen();
+      window.addEventListener("pointerdown", retry, { once: true });
+    }
     return () => {
+      if (!isNativeCore && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
       emulator.stop();
       markPlayed(gameId, Math.round((Date.now() - started) / 60000));
     };
@@ -99,7 +106,7 @@ function PlayerPage() {
 
   const goFullscreen = async () => {
     try {
-      await document.documentElement.requestFullscreen();
+      if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
       const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
       await o.lock?.("landscape");
     } catch {

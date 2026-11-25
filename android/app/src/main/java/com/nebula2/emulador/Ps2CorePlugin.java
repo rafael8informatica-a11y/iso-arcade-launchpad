@@ -42,6 +42,13 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.concurrent.CountDownLatch;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import org.json.JSONObject;
+import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.os.Build;
 import java.util.concurrent.TimeUnit;
 
 import kr.co.iefriends.pcsx2.NativeApp;
@@ -260,6 +267,20 @@ public class Ps2CorePlugin extends Plugin {
         if (biosName != null && !biosName.isEmpty()) {
             NativeApp.setSetting("Filenames", "BIOS", "string", biosName);
         }
+        boolean hacks = s.getBool("speedHacks") == null || s.getBool("speedHacks");
+        boolean mtvu = s.getBool("mtvu") == null || s.getBool("mtvu");
+        boolean fastCdvd = s.getBool("fastCdvd") != null && s.getBool("fastCdvd");
+        boolean skipDup = s.getBool("skipDuplicateFrames") == null || s.getBool("skipDuplicateFrames");
+        boolean vsync = s.getBool("vsync") != null && s.getBool("vsync");
+        NativeApp.setSetting("EmuCore/Speedhacks", "vuThread", "bool", mtvu ? "true" : "false");
+        NativeApp.setSetting("EmuCore/Speedhacks", "vu1Instant", "bool", hacks ? "true" : "false");
+        NativeApp.setSetting("EmuCore/Speedhacks", "IntcStat", "bool", hacks ? "true" : "false");
+        NativeApp.setSetting("EmuCore/Speedhacks", "WaitLoop", "bool", hacks ? "true" : "false");
+        NativeApp.setSetting("EmuCore/Speedhacks", "vuFlagHack", "bool", hacks ? "true" : "false");
+        NativeApp.setSetting("EmuCore/Speedhacks", "fastCDVD", "bool", fastCdvd ? "true" : "false");
+        NativeApp.setSetting("EmuCore/GS", "SkipDuplicateFrames", "bool", skipDup ? "true" : "false");
+        NativeApp.setSetting("EmuCore/GS", "VsyncEnable", "bool", vsync ? "true" : "false");
+        applyDriver(s.getString("gpuDriver", null), s.getString("renderer", "vulkan"));
         NativeApp.commitSettings();
         String renderer = s.getString("renderer", "vulkan");
         if ("opengl".equals(renderer)) NativeApp.renderOpenGL();
@@ -277,6 +298,149 @@ public class Ps2CorePlugin extends Plugin {
         NativeApp.speedhackEecyclerate(ee);
         Boolean vib = s.getBool("vibration");
         vibration = vib != null ? vib : true;
+    }
+
+    // ---- Drivers de GPU (Turnip / MaliSX2 / PanVK) via libadrenotools do núcleo ----
+
+    private File driversDir() {
+        return new File(getContext().getFilesDir(), "drivers");
+    }
+
+    private void applyDriver(String id, String renderer) {
+        try {
+            File dir = id == null || id.isEmpty() ? null : new File(driversDir(), id);
+            String lib = dir != null ? readDriverLib(dir) : null;
+            if (!"vulkan".equals(renderer) || lib == null || !new File(dir, lib).exists()) {
+                NativeApp.setCustomVulkanDriver("", "", "", "");
+                return;
+            }
+            File cache = new File(dir, "cache");
+            cache.mkdirs();
+            NativeApp.setCustomVulkanDriver(dir.getAbsolutePath() + "/", lib,
+                    cache.getAbsolutePath() + "/", getContext().getApplicationInfo().nativeLibraryDir);
+        } catch (Throwable t) {
+            emitStatus("Driver ignorado: " + t.getMessage());
+        }
+    }
+
+    private static String readJson(File f) throws Exception {
+        try (InputStream in = new java.io.FileInputStream(f)) {
+            java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+            copy(in, b);
+            return b.toString("UTF-8");
+        }
+    }
+
+    private static String readDriverLib(File dir) {
+        try {
+            File meta = new File(dir, "meta.json");
+            if (meta.exists()) {
+                String lib = new JSONObject(readJson(meta)).optString("libraryName", "");
+                if (!lib.isEmpty() && new File(dir, lib).exists()) return lib;
+            }
+        } catch (Throwable ignored) {}
+        File[] list = dir.listFiles();
+        if (list != null) for (File f : list) if (f.getName().startsWith("libvulkan") && f.getName().endsWith(".so")) return f.getName();
+        if (list != null) for (File f : list) if (f.getName().endsWith(".so")) return f.getName();
+        return null;
+    }
+
+    private JSObject describeDriver(File dir) {
+        JSObject o = new JSObject();
+        o.put("id", dir.getName());
+        String name = dir.getName();
+        String version = "";
+        try {
+            File meta = new File(dir, "meta.json");
+            if (meta.exists()) {
+                JSONObject j = new JSONObject(readJson(meta));
+                name = j.optString("name", name);
+                version = j.optString("driverVersion", "");
+            }
+        } catch (Throwable ignored) {}
+        o.put("name", name);
+        o.put("version", version);
+        return o;
+    }
+
+    @PluginMethod
+    public void listDrivers(PluginCall call) {
+        JSArray arr = new JSArray();
+        File[] list = driversDir().listFiles();
+        if (list != null) for (File d : list) if (d.isDirectory() && readDriverLib(d) != null) arr.put(describeDriver(d));
+        JSObject o = new JSObject();
+        o.put("drivers", arr);
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void pickDriver(PluginCall call) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        startActivityForResult(call, i, "onDriverPicked");
+    }
+
+    @ActivityCallback
+    private void onDriverPicked(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Intent data = result.getData();
+        if (result.getResultCode() != Activity.RESULT_OK || data == null || data.getData() == null) {
+            call.resolve(new JSObject());
+            return;
+        }
+        final Uri uri = data.getData();
+        new Thread(() -> {
+            File dir = null;
+            try {
+                String fname = displayName(uri);
+                if (fname == null) fname = "driver";
+                String id = fname.replaceAll("\\.(zip|so)$", "").replaceAll("[^A-Za-z0-9._-]", "_");
+                dir = new File(driversDir(), id);
+                deleteTree(dir);
+                dir.mkdirs();
+                try (InputStream in = getContext().getContentResolver().openInputStream(uri)) {
+                    if (in == null) throw new Exception("Não deu para abrir o arquivo.");
+                    if (fname.toLowerCase().endsWith(".so")) {
+                        try (OutputStream out = new FileOutputStream(new File(dir, fname))) { copy(in, out); }
+                    } else {
+                        try (ZipInputStream zip = new ZipInputStream(in)) {
+                            ZipEntry e;
+                            while ((e = zip.getNextEntry()) != null) {
+                                if (e.isDirectory()) continue;
+                                String n = new File(e.getName()).getName();
+                                if (!(n.endsWith(".so") || n.equals("meta.json"))) continue;
+                                try (OutputStream out = new FileOutputStream(new File(dir, n))) { copy(zip, out); }
+                            }
+                        }
+                    }
+                }
+                if (readDriverLib(dir) == null) {
+                    deleteTree(dir);
+                    call.reject("Esse arquivo não tem um driver Vulkan (.so). Use o .zip do Turnip, MaliSX2 ou PanVK.");
+                    return;
+                }
+                for (File f : dir.listFiles()) f.setReadable(true, false);
+                call.resolve(describeDriver(dir));
+            } catch (Throwable t) {
+                if (dir != null) deleteTree(dir);
+                call.reject("Não deu para instalar o driver: " + t.getMessage());
+            }
+        }, "driver-install").start();
+    }
+
+    @PluginMethod
+    public void removeDriver(PluginCall call) {
+        String id = call.getString("id", "");
+        if (!id.isEmpty() && !id.contains("/")) deleteTree(new File(driversDir(), id));
+        call.resolve();
+    }
+
+    private static void deleteTree(File f) {
+        if (f == null || !f.exists()) return;
+        File[] kids = f.listFiles();
+        if (kids != null) for (File k : kids) deleteTree(k);
+        f.delete();
     }
 
     @PluginMethod
@@ -362,6 +526,34 @@ public class Ps2CorePlugin extends Plugin {
         web.setBackgroundColor(Color.TRANSPARENT);
         act.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         act.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        setImmersive(act, true);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void setImmersive(Activity act, boolean on) {
+        if (Build.VERSION.SDK_INT >= 28) {
+            act.getWindow().getAttributes().layoutInDisplayCutoutMode = on
+                    ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            act.getWindow().setDecorFitsSystemWindows(!on);
+            WindowInsetsController c = act.getWindow().getInsetsController();
+            if (c == null) return;
+            if (on) {
+                c.hide(WindowInsets.Type.systemBars());
+                c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            } else {
+                c.show(WindowInsets.Type.systemBars());
+            }
+        } else {
+            View d = act.getWindow().getDecorView();
+            d.setSystemUiVisibility(on
+                    ? View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                      | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    : View.SYSTEM_UI_FLAG_VISIBLE);
+        }
     }
 
     private void hideSurface() {
@@ -374,6 +566,7 @@ public class Ps2CorePlugin extends Plugin {
         if (act != null) {
             act.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             act.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+            setImmersive(act, false);
         }
     }
 

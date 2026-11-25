@@ -70,6 +70,7 @@ public final class NativeApp {
     public static native void initialize(String path, String biosFolder, int apiVer);
     public static native void setSetting(String section, String key, String type, String value);
     public static native void commitSettings();
+    public static native void setCustomVulkanDriver(String driverDir, String driverName, String redirectDir, String hookLibDir);
     public static native String getLastBootError();
     public static native float getFPS();
     public static native void setPadButton(int index, int range, boolean pressed);

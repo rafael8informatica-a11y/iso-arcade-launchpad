@@ -24,6 +24,14 @@ export type Settings = {
   vibration: boolean;
   eeCycleRate: "-2" | "-1" | "0" | "1" | "2";
   speedHacks: boolean;
+  /** Fila da VU1 em outra thread (MTVU) — grande ganho em celulares com vários núcleos. */
+  mtvu: boolean;
+  fastCdvd: boolean;
+  skipDuplicateFrames: boolean;
+  vsync: boolean;
+  /** Driver Vulkan instalado no APK (Turnip, MaliSX2, PanVK); null = driver do sistema. */
+  gpuDriver: string | null;
+  gpuDriverName: string | null;
   biosName: string | null;
 };
 
@@ -39,6 +47,12 @@ export const defaultSettings: Settings = {
   vibration: true,
   eeCycleRate: "0",
   speedHacks: true,
+  mtvu: true,
+  fastCdvd: false,
+  skipDuplicateFrames: true,
+  vsync: false,
+  gpuDriver: null,
+  gpuDriverName: null,
   biosName: null,
 };
 

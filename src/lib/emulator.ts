@@ -57,6 +57,9 @@ interface Ps2CoreNativePlugin {
   pickBios(): Promise<{ name?: string; description?: string }>;
   boot(opts: { uri: string; bios?: string | null; settings?: Record<string, unknown> }): Promise<void>;
   stop(): Promise<void>;
+  listDrivers(): Promise<{ drivers: GpuDriver[] }>;
+  pickDriver(): Promise<Partial<GpuDriver>>;
+  removeDriver(opts: { id: string }): Promise<void>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   saveState(opts: { slot: number }): Promise<void>;
@@ -238,3 +241,20 @@ export async function pickNativeBios(): Promise<{ name: string; description?: st
 }
 
 export const emulator: EmulatorCore = isNativeCore ? createNativeCore() : createStubCore();
+
+export type GpuDriver = { id: string; name: string; version?: string };
+
+/** Drivers Vulkan personalizados (Turnip, MaliSX2, PanVK) instalados no APK. */
+export async function listGpuDrivers(): Promise<GpuDriver[]> {
+  if (!isNativeCore) return [];
+  return (await Ps2Core.listDrivers()).drivers;
+}
+
+export async function pickGpuDriver(): Promise<GpuDriver | null> {
+  const d = await Ps2Core.pickDriver();
+  return d.id ? { id: d.id, name: d.name ?? d.id, ...(d.version ? { version: d.version } : {}) } : null;
+}
+
+export async function removeGpuDriver(id: string): Promise<void> {
+  await Ps2Core.removeDriver({ id });
+}
