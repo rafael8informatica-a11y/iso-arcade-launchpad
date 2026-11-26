@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { isNativeCore, listGpuDrivers, pickGpuDriver, pickNativeBios, removeGpuDriver, type GpuDriver } from "@/lib/emulator";
 import { defaultSettings, setBios, setBiosName, updateSettings, useSettings, type Settings } from "@/lib/library";
+import { performancePatch } from "@/lib/performance";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -141,7 +142,8 @@ function DriverSection() {
               variant="ghost"
               size="sm"
               onClick={() => {
-                const id = s.gpuDriver!;
+                const id = s.gpuDriver;
+                if (!id) return;
                 void removeGpuDriver(id).then(() => {
                   updateSettings({ gpuDriver: null, gpuDriverName: null });
                   refresh();
@@ -290,6 +292,18 @@ function SettingsPage() {
         </Section>
 
         <Section icon={<Zap className="size-4" />} title="Desempenho">
+          <div className="flex flex-wrap gap-2 pb-4">
+            {([
+              ["light", "Mais leve"], ["balanced", "Equilibrado"], ["quality", "Mais nitidez"],
+            ] as const).map(([profile, label]) => (
+              <Button key={profile} variant="secondary" size="sm" onClick={() => {
+                updateSettings(performancePatch(profile));
+                toast.success(`Perfil ${label.toLowerCase()} aplicado`);
+              }}>
+                <Zap className="size-4" /> {label}
+              </Button>
+            ))}
+          </div>
           <Row label="Velocidade do EE" hint="Underclock ajuda em celulares mais fracos">
             <Choice
               k="eeCycleRate"

@@ -68,6 +68,7 @@ public class Ps2CorePlugin extends Plugin {
     private volatile boolean running = false;
     private volatile boolean userPaused = false;
     private boolean vibration = true;
+    private final java.util.concurrent.atomic.AtomicBoolean scanningFolder = new java.util.concurrent.atomic.AtomicBoolean(false);
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable fpsTick = new Runnable() {
         @Override public void run() {
@@ -132,6 +133,65 @@ public class Ps2CorePlugin extends Plugin {
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
         startActivityForResult(call, i, "onBiosPicked");
+    }
+
+    @PluginMethod
+    public void pickGameFolder(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        startActivityForResult(call, intent, "onGameFolderPicked");
+    }
+
+    @ActivityCallback
+    private void onGameFolderPicked(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        Intent data = result.getData();
+        if (result.getResultCode() != Activity.RESULT_OK || data == null || data.getData() == null) {
+            JSObject empty = new JSObject();
+            empty.put("files", new JSArray());
+            call.resolve(empty);
+            return;
+        }
+        Uri tree = data.getData();
+        try {
+            getContext().getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            scanFolder(call, tree, true);
+        } catch (Exception e) {
+            call.reject("Permita o acesso à pasta para detectar os jogos.");
+        }
+    }
+
+    @PluginMethod
+    public void scanGameFolder(PluginCall call) {
+        String saved = getContext().getSharedPreferences("game-library", Context.MODE_PRIVATE)
+                .getString("tree", null);
+        if (saved == null) {
+            JSObject empty = new JSObject();
+            empty.put("files", new JSArray());
+            call.resolve(empty);
+            return;
+        }
+        scanFolder(call, Uri.parse(saved), false);
+    }
+
+    private void scanFolder(PluginCall call, Uri tree, boolean save) {
+        if (!scanningFolder.compareAndSet(false, true)) {
+            call.reject("A busca de jogos já está em andamento.");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                JSObject result = GameFolderScanner.scan(getContext().getContentResolver(), tree);
+                if (save) getContext().getSharedPreferences("game-library", Context.MODE_PRIVATE)
+                        .edit().putString("tree", tree.toString()).apply();
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("Não deu para ler a pasta. Selecione-a novamente e permita o acesso.");
+            } finally {
+                scanningFolder.set(false);
+            }
+        }, "nebula2-folder-scan").start();
     }
 
     @ActivityCallback

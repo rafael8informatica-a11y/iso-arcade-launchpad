@@ -55,6 +55,8 @@ interface Ps2CoreNativePlugin {
   status(): Promise<{ loaded: boolean; error?: string; running: boolean }>;
   pickIsos(opts?: { multiple?: boolean }): Promise<{ files: Array<{ uri: string; name: string; size: number }> }>;
   pickBios(): Promise<{ name?: string; description?: string }>;
+  pickGameFolder(): Promise<FolderScan>;
+  scanGameFolder(): Promise<FolderScan>;
   boot(opts: { uri: string; bios?: string | null; settings?: Record<string, unknown> }): Promise<void>;
   stop(): Promise<void>;
   listDrivers(): Promise<{ drivers: GpuDriver[] }>;
@@ -76,6 +78,23 @@ export const Ps2Core = registerPlugin<Ps2CoreNativePlugin>("Ps2Core");
 
 function createNativeCore(): EmulatorCore {
   const listeners: PluginListenerHandle[] = [];
+  const pendingAnalog = new Map<Stick, { x: number; y: number }>();
+  let analogFrame = 0;
+  const flushAnalog = () => {
+    analogFrame = 0;
+    for (const [stick, value] of pendingAnalog) {
+      void Ps2Core.setAnalog({ stick, ...value }).catch(() => {});
+    }
+    pendingAnalog.clear();
+  };
+  const resetAnalog = () => {
+    cancelAnimationFrame(analogFrame);
+    analogFrame = 0;
+    pendingAnalog.clear();
+    for (const stick of ["left", "right"] as const) {
+      void Ps2Core.setAnalog({ stick, x: 0, y: 0 }).catch(() => {});
+    }
+  };
 
   const clearListeners = async () => {
     while (listeners.length > 0) {
@@ -131,6 +150,7 @@ function createNativeCore(): EmulatorCore {
     },
 
     pause() {
+      resetAnalog();
       Ps2Core.pause().catch(() => {});
     },
 
@@ -139,6 +159,7 @@ function createNativeCore(): EmulatorCore {
     },
 
     stop() {
+      resetAnalog();
       clearListeners();
       document.documentElement.style.background = "";
       document.body.style.background = "";
@@ -153,7 +174,14 @@ function createNativeCore(): EmulatorCore {
     },
 
     setAnalog(stick, x, y) {
-      Ps2Core.setAnalog({ stick, x, y }).catch(() => {});
+      // Keep only the latest movement per display frame; release stays immediate.
+      if (x === 0 && y === 0) {
+        pendingAnalog.delete(stick);
+        void Ps2Core.setAnalog({ stick, x, y }).catch(() => {});
+        return;
+      }
+      pendingAnalog.set(stick, { x, y });
+      if (!analogFrame) analogFrame = requestAnimationFrame(flushAnalog);
     },
 
     async saveState(slot) {
@@ -226,6 +254,15 @@ function createStubCore(): EmulatorCore {
 export const isNativeCore = Capacitor.isNativePlatform();
 
 export type PickedFile = { uri: string; name: string; size: number };
+export type FolderScan = { files: PickedFile[]; folderName?: string };
+
+export async function pickGameFolder(): Promise<FolderScan> {
+  return Ps2Core.pickGameFolder();
+}
+
+export async function scanGameFolder(): Promise<FolderScan> {
+  return Ps2Core.scanGameFolder();
+}
 
 /** Abre o seletor de arquivos do Android. O app guarda o acesso, então não precisa escolher de novo. */
 export async function pickNativeIsos(multiple = true): Promise<PickedFile[]> {

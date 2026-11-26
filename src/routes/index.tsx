@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, Cpu, Disc3, Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Cpu, Disc3, FolderSearch, LoaderCircle, Plus, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import heroImg from "@/assets/hero-towers.jpg";
@@ -8,7 +8,7 @@ import { AppHeader } from "@/components/emu/AppHeader";
 import { GameCard } from "@/components/emu/GameCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { isNativeCore, pickNativeIsos } from "@/lib/emulator";
+import { isNativeCore, pickGameFolder, pickNativeIsos, scanGameFolder, type FolderScan } from "@/lib/emulator";
 import { addIsoFiles, addNativeIsos, ISO_ACCEPT, useGames, useSettings } from "@/lib/library";
 
 export const Route = createFileRoute("/")({
@@ -30,6 +30,46 @@ function LibraryPage() {
   const settings = useSettings();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const [scanError, setScanError] = useState("");
+
+  useEffect(() => {
+    if (!isNativeCore) return;
+    let active = true;
+    setScanning(true);
+    void scanGameFolder().then((result) => {
+      if (!active) return;
+      if (result.folderName) setFolderName(result.folderName);
+      if (result.files.length) addNativeIsos(result.files);
+    }).catch((error: unknown) => {
+      if (active) setScanError(error instanceof Error ? error.message : String(error));
+    }).finally(() => { if (active) setScanning(false); });
+    return () => { active = false; };
+  }, []);
+
+  const detectFolder = async (choose: boolean) => {
+    if (!isNativeCore) {
+      folderRef.current?.click();
+      return;
+    }
+    setScanning(true);
+    setScanError("");
+    try {
+      const result: FolderScan = await (choose ? pickGameFolder() : scanGameFolder());
+      if (!result.folderName) return;
+      setFolderName(result.folderName);
+      const count = addNativeIsos(result.files);
+      toast.success(result.files.length ? `${result.files.length} jogo(s) encontrado(s), ${count} novo(s)` : "Nenhum jogo encontrado na pasta");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      setScanError(message);
+      toast.error(message);
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -73,6 +113,22 @@ function LibraryPage() {
         }}
       />
 
+      <input
+        ref={folderRef}
+        type="file"
+        multiple
+        hidden
+        {...{ webkitdirectory: "", directory: "" }}
+        onChange={(event) => {
+          const files = event.target.files;
+          if (!files?.length) return;
+          setFolderName(files[0]?.webkitRelativePath.split("/")[0] ?? "Pasta de jogos");
+          const count = addIsoFiles(files);
+          toast.success(count ? `${count} jogo(s) adicionado(s)` : "Nenhum jogo novo encontrado");
+          event.target.value = "";
+        }}
+      />
+
       <section className="relative overflow-hidden border-b border-border">
         <img
           src={heroImg}
@@ -104,6 +160,24 @@ function LibraryPage() {
       </section>
 
       <main className="mx-auto max-w-6xl px-4 py-8">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+          <div className="min-w-0 flex-1">
+            <p className="break-words font-medium">{folderName || "Pasta de jogos"}</p>
+            {scanning && <p role="status" className="text-sm text-muted-foreground">Buscando jogos…</p>}
+            {scanError && <p role="alert" className="text-sm text-destructive">{scanError}</p>}
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="secondary" disabled={scanning} onClick={() => void detectFolder(true)}>
+              {scanning ? <LoaderCircle className="animate-spin motion-reduce:animate-none" /> : <FolderSearch />}
+              {folderName ? "Trocar pasta" : "Selecionar pasta"}
+            </Button>
+            {folderName && (
+              <Button variant="outline" size="icon" aria-label="Atualizar pasta" title="Atualizar pasta" disabled={scanning} onClick={() => void detectFolder(false)}>
+                <RefreshCw />
+              </Button>
+            )}
+          </div>
+        </div>
         {!settings.biosName && (
           <Link
             to="/configuracoes"

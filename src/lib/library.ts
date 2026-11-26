@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { isGameFile } from "./performance";
 
 export type Game = {
   id: string;
@@ -123,7 +124,8 @@ export function addIsoFiles(files: FileList | File[]) {
   load();
   const added: Game[] = [];
   for (const file of Array.from(files)) {
-    const existing = games.find((g) => g.fileName === file.name && g.size === file.size);
+    if (!isGameFile(file.name)) continue;
+    const existing = [...games, ...added].find((g) => g.fileName === file.name && g.size === file.size);
     if (existing) {
       isoFiles.set(existing.id, file);
       continue;
@@ -150,7 +152,8 @@ export function addNativeIsos(files: { uri: string; name: string; size: number }
   load();
   const added: Game[] = [];
   for (const f of files) {
-    const existing = games.find((g) => g.uri === f.uri || (g.fileName === f.name && g.size === f.size));
+    if (!isGameFile(f.name)) continue;
+    const existing = [...games, ...added].find((g) => g.uri === f.uri || (g.fileName === f.name && g.size === f.size));
     if (existing) {
       games = games.map((g) => (g.id === existing.id ? { ...g, uri: f.uri } : g));
       continue;
