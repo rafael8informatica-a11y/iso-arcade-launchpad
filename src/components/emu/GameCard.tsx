@@ -32,7 +32,6 @@ export function GameCard({ game, index }: { game: Game; index: number }) {
       >
         <div className={cn("relative aspect-[3/4] overflow-hidden", coverClass(game.id))}>
           <div className="absolute inset-0 scanlines opacity-60" />
-          <div className="absolute left-0 top-0 h-full w-3 bg-foreground/10" />
           <div className="absolute left-5 top-4 font-display text-[10px] uppercase tracking-[0.3em] text-foreground/70">
             PS2 · DVD
           </div>

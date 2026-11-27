@@ -153,11 +153,11 @@ export function VirtualPad({ opacity, scale, vibration }: PadProps) {
 
       {/* Centro: select / start */}
       <div
-        className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-4"
-        style={{ transform: `translateX(-50%) scale(${s})`, transformOrigin: "bottom center" }}
+        className="pointer-events-auto absolute top-4 left-1/2 flex -translate-x-1/2 gap-3"
+        style={{ transform: `translateX(-50%) scale(${s})`, transformOrigin: "top center" }}
       >
-        <PadKey button="select" label="Select" vibrate={vibrate} className="h-8 w-20 rounded-full text-[10px] tracking-widest">SELECT</PadKey>
-        <PadKey button="start" label="Start" vibrate={vibrate} className="h-8 w-20 rounded-full text-[10px] tracking-widest">START</PadKey>
+        <PadKey button="select" label="Select" vibrate={vibrate} className="h-7 w-16 rounded-full text-[9px] tracking-widest">SELECT</PadKey>
+        <PadKey button="start" label="Start" vibrate={vibrate} className="h-7 w-16 rounded-full text-[9px] tracking-widest">START</PadKey>
       </div>
 
       {/* Lado direito: analógico + botões de ação */}
