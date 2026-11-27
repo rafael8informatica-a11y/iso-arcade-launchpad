@@ -323,6 +323,38 @@ public class Ps2CorePlugin extends Plugin {
         while ((r = in.read(buf)) != -1) out.write(buf, 0, r);
     }
 
+    /**
+     * Ajustes de imagem e desempenho do GS. As chaves seguem os nomes do INI do PCSX2.
+     * "core" = não escreve nada, vale o padrão do núcleo. Chave desconhecida é ignorada pelo núcleo.
+     */
+    private void applyImageSettings(JSObject s) {
+        String blending = s.getString("blending", "core");
+        if (!"core".equals(blending)) NativeApp.setSetting("EmuCore/GS", "accurate_blending_unit", "int", blending);
+        String preload = s.getString("texturePreloading", "core");
+        if (!"core".equals(preload)) NativeApp.setSetting("EmuCore/GS", "texture_preloading", "int", preload);
+        String aniso = s.getString("anisotropy", "core");
+        if (!"core".equals(aniso)) NativeApp.setSetting("EmuCore/GS", "MaxAnisotropy", "int", aniso);
+
+        Boolean fxaa = s.getBool("fxaa");
+        NativeApp.setSetting("EmuCore/GS", "fxaa", "bool", fxaa != null && fxaa ? "true" : "false");
+
+        // Nitidez adaptativa (CAS): 0 desliga; acima disso só afia a imagem.
+        int sharpen = Math.max(0, Math.min(100, s.getInteger("sharpening", 0)));
+        NativeApp.setSetting("EmuCore/GS", "CASMode", "int", sharpen > 0 ? "1" : "0");
+        NativeApp.setSetting("EmuCore/GS", "CASSharpness", "int", String.valueOf(sharpen));
+
+        // Realce de cores (ShadeBoost): suave ou vívido.
+        String boost = s.getString("colorBoost", "off");
+        boolean boostOn = "soft".equals(boost) || "vivid".equals(boost);
+        NativeApp.setSetting("EmuCore/GS", "ShadeBoost", "bool", boostOn ? "true" : "false");
+        if (boostOn) {
+            boolean vivid = "vivid".equals(boost);
+            NativeApp.setSetting("EmuCore/GS", "ShadeBoost_Brightness", "int", "50");
+            NativeApp.setSetting("EmuCore/GS", "ShadeBoost_Contrast", "int", vivid ? "58" : "53");
+            NativeApp.setSetting("EmuCore/GS", "ShadeBoost_Saturation", "int", vivid ? "68" : "58");
+        }
+    }
+
     private void applySettings(JSObject s, String biosName) {
         if (biosName != null && !biosName.isEmpty()) {
             NativeApp.setSetting("Filenames", "BIOS", "string", biosName);
@@ -340,6 +372,7 @@ public class Ps2CorePlugin extends Plugin {
         NativeApp.setSetting("EmuCore/Speedhacks", "fastCDVD", "bool", fastCdvd ? "true" : "false");
         NativeApp.setSetting("EmuCore/GS", "SkipDuplicateFrames", "bool", skipDup ? "true" : "false");
         NativeApp.setSetting("EmuCore/GS", "VsyncEnable", "bool", vsync ? "true" : "false");
+        applyImageSettings(s);
         applyDriver(s.getString("gpuDriver", null), s.getString("renderer", "vulkan"));
         NativeApp.commitSettings();
         String renderer = s.getString("renderer", "vulkan");

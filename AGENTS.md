@@ -1,149 +1,48 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  Outlet,
-  Link,
-  createRootRouteWithContext,
-  useRouter,
-  HeadContent,
-  Scripts,
-  type ErrorComponentProps,
-} from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+<!-- LOVABLE:BEGIN -->
+> [!IMPORTANT]
+> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
+> published git history — force pushing, or rebasing/amending/squashing commits
+> that are already pushed — as it rewrites history on Lovable's side and the
+> user will likely lose their project history.
+>
+> Commits you push to the connected branch sync back to Lovable and show up in
+> the editor, so keep the branch in a working state.
 
-import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
-import { Toaster } from "@/components/ui/sonner";
-import { useGamepadNotifications } from "@/hooks/use-gamepad";
-import { setupPwa } from "@/lib/pwa";
+## What Lovable manages
 
-function NotFoundComponent() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Página não encontrada</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Essa página não existe.
-        </p>
-        <div className="mt-6">
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Voltar ao início
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
+Rules outside this block are the project's own. Change the pieces below in
+Lovable, not by hand. With the [Lovable MCP](https://mcp.lovable.dev)
+connected, `send_message` asks Lovable to do it; otherwise ask the user to
+use the editor.
 
-function ErrorComponent({ error, reset }: ErrorComponentProps) {
-  console.error(error);
-  const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
+- **Database.** Do not add or edit `supabase/migrations/` or `drizzle/`.
+  Ask Lovable to change the schema.
+- **Generated files.** Do not edit a file whose header says it is automatically
+  generated.
+- **AI gateway.** Keep model calls on Lovable's gateway, and keep
+  `LOVABLE_API_KEY` out of browser code.
+- **Connectors.** Lovable provides native connectors. `list_connectors` shows
+  which are enabled; `add_connector` only returns the dashboard link. When a
+  connector is enabled, calls go through the connector gateway and need
+  `LOVABLE_API_KEY`. When Lovable does not provide one, users can bring their
+  own key and store it in Secrets.
+- **Secrets.** Lovable manages them. Do not put secret values in the repo.
+<!-- LOVABLE:END -->
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
-        </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <button
-            onClick={() => {
-              router.invalidate();
-              reset();
-            }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Try again
-          </button>
-          <a
-            href="/"
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
-            Voltar ao início
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
+## Project rules
 
-export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    // Replace these placeholders with the app's name and description when first building the app.
-    // Each content route, / included, must still set its own head(). Never add og:image or
-    // twitter:image here: every page without its own would inherit the root's preview image.
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { name: "theme-color", content: "#0a1020" },
-      { name: "mobile-web-app-capable", content: "yes" },
-      { name: "apple-mobile-web-app-capable", content: "yes" },
-      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { title: "NEBULA·2 — Emulador de PS2" },
-      { name: "description", content: "Emulador de PS2 para abrir jogos em ISO com controle virtual." },
-      { property: "og:title", content: "NEBULA·2 — Emulador de PS2" },
-      { property: "og:description", content: "Emulador de PS2 para abrir jogos em ISO com controle virtual." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-    links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-      { rel: "icon", type: "image/png", href: "/favicon.png" },
-      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
-      { rel: "manifest", href: "/manifest.webmanifest" },
-    ],
-  }),
-  shellComponent: RootShell,
-  component: RootComponent,
-  notFoundComponent: NotFoundComponent,
-  errorComponent: ErrorComponent,
-});
+- The UI talks to the PS2 core only through `src/lib/emulator.ts`: in the APK it calls the Capacitor plugin `Ps2Core` (Ps2CorePlugin.java), in the browser a demo stub, so screens never touch native code.
+- The native core is the official ARMSX2 release APK, pinned by version + SHA-256 in `scripts/fetch-armsx2-core.sh` and downloaded at APK build time (never committed); `kr.co.iefriends.pcsx2.NativeApp`, `com.armsx2.BiosInfo` and `org.libsdl.app.*` keep ARMSX2's exact names because the .so binds to them, so check new natives against the pinned version's exports.
+- Game list and settings persist in localStorage via `src/lib/library.ts`; ISO/BIOS files live only in memory per session because browsers can't reliably keep multi-GB files.
+- Folder discovery uses persisted Android SAF tree grants and background metadata-only traversal through the emulator bridge; never copy game images or request all-files access, to keep storage and memory usage low.
+- Performance presets live in a browser-safe module and analog input is coalesced per animation frame with immediate neutral release, to reduce bridge traffic without delaying releases.
+- Offline mode uses vite-plugin-pwa (generateSW, client environment only, sw.js written to dist/client); the only registrar is src/lib/pwa.ts, which refuses dev, iframes and Lovable preview hosts so the editor preview never gets a stale cache.
+- Fonts are self-hosted via @fontsource (latin subsets) so the app renders offline.
+- Android APK uses Capacitor (`capacitor.config.ts`, `android/`, webDir `dist/client`); `CAPACITOR_BUILD=1 vite build` switches TanStack Start to SPA mode (static index.html) and drops the service worker, and `.github/workflows/android-apk.yml` builds the debug APK on GitHub because the user has no Android Studio. Normal web builds stay SSR.
+- Per-game overrides (renderer, internal resolution 1x–3x, aspect, EE cycle rate, frame skip) live in `src/lib/library.ts` under `nebula2.gameOverrides`; `getGameSettings(gameId)` merges them over the global settings and is what the player passes to `emulator.boot`. Only valid values are kept when loading from localStorage.
+- Boot failures reach the UI through `BootOptions.onError` (and the rejected `boot` promise); `src/lib/diagnostics.ts` turns the raw core message into a probable cause plus quick actions, shown by `BootDiagnostic` instead of a black screen.
+- Physical gamepads use the standard Gamepad API: `src/lib/gamepad.ts` (mapping, radial deadzone 5–30%, edge-triggered loop) and `src/hooks/use-gamepad.ts`; the loop only sends changes so it never overrides the on-screen pad while the gamepad is idle. Connect/disconnect toasts come from `GamepadWatcher` in `__root.tsx`.
+- Image/performance options beyond resolution (blending, texture preloading, anisotropy, FXAA, CAS sharpening, colour boost) are written by `applyImageSettings` in `Ps2CorePlugin.java` using PCSX2 INI key names under `EmuCore/GS`; `"core"` means "write nothing". They were not verified against ARMSX2 2.9.5 offline: confirm on a device. Shared labels live in `src/lib/options.ts`; per-game overrides can set all of them.
+- Profiles (`performancePatch`) include a "Realista 4K" one (6x). The library page suggests a profile from `navigator.hardwareConcurrency`/`deviceMemory` once (`ProfileSuggestion`); the player offers a lighter per-game setting after sustained low FPS (`createLowFpsDetector`, `suggestLighter`).
+- Save states: slots 1–9 manual, 10 = auto. `src/lib/saves.ts` only records when each slot was written (localStorage); the files live in the core. Auto-save runs on exit, when the app goes to the background, and on an optional timer; "continue where I left off" loads slot 10 after the first rendered frame.
 
-function RootShell({ children }: { children: ReactNode }) {
-  return (
-    <html lang="pt-BR">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  );
-}
-
-/** Avisa quando um controle físico é conectado ou desconectado, em qualquer tela. */
-function GamepadWatcher() {
-  useGamepadNotifications();
-  return null;
-}
-
-function RootComponent() {
-  const { queryClient } = Route.useRouteContext();
-
-  useEffect(() => {
-    void setupPwa();
-  }, []);
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
-      <GamepadWatcher />
-      <Toaster position="top-center" theme="dark" duration={2000} />
-    </QueryClientProvider>
-  );
-}

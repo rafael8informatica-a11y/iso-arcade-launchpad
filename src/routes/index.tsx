@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import heroImg from "@/assets/hero-towers.jpg";
 import { AppHeader } from "@/components/emu/AppHeader";
 import { GameCard } from "@/components/emu/GameCard";
+import { ProfileSuggestion } from "@/components/emu/ProfileSuggestion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isNativeCore, pickGameFolder, pickNativeIsos, scanGameFolder, type FolderScan } from "@/lib/emulator";
@@ -158,6 +159,8 @@ function LibraryPage() {
           </div>
         </div>
       </section>
+
+      <ProfileSuggestion />
 
       <main className="mx-auto max-w-6xl px-4 py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">

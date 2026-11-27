@@ -18,6 +18,8 @@ export type BootOptions = {
   settings: Record<string, unknown>;
   onStatus?: (status: string) => void;
   onFps?: (fps: number) => void;
+  /** O núcleo não conseguiu iniciar (ou o jogo caiu). Texto cru do erro; vazio se o núcleo não disse o motivo. */
+  onError?: (message: string) => void;
 };
 
 export interface EmulatorCore {
@@ -104,7 +106,7 @@ function createNativeCore(): EmulatorCore {
   };
 
   return {
-    async boot({ canvas, iso, bios, settings, onStatus, onFps }) {
+    async boot({ canvas, iso, bios, settings, onStatus, onFps, onError }) {
       await clearListeners();
 
       const ctx = canvas.getContext("2d");
@@ -116,13 +118,16 @@ function createNativeCore(): EmulatorCore {
         await Ps2Core.addListener("status", ({ text }) => onStatus?.(text)),
         await Ps2Core.addListener("fps", ({ fps }) => onFps?.(fps)),
         await Ps2Core.addListener("ended", ({ ok, error }) => {
-          if (!ok && error) onStatus?.(`Erro: ${error}`);
+          if (ok) return;
+          if (error) onStatus?.(`Erro: ${error}`);
+          onError?.(error ?? "");
         })
       );
 
       const isoUri = iso.uri || iso.path;
       if (!isoUri) {
         onStatus?.("Escolha o jogo de novo pelo botão do app.");
+        onError?.("Sem acesso ao arquivo do jogo (corrompido ou removido). Escolha a ISO de novo.");
         return;
       }
       const biosName = bios?.name ?? (typeof settings["biosName"] === "string" ? settings["biosName"] : null);
@@ -130,7 +135,9 @@ function createNativeCore(): EmulatorCore {
       try {
         const st = await Ps2Core.status();
         if (!st.loaded) {
-          onStatus?.(`Núcleo nativo indisponível: ${st.error || "bibliotecas .so ausentes"}`);
+          const msg = `Núcleo nativo indisponível: ${st.error || "bibliotecas .so ausentes"}`;
+          onStatus?.(msg);
+          onError?.(msg);
           return;
         }
         if (st.running) {
@@ -145,6 +152,7 @@ function createNativeCore(): EmulatorCore {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         onStatus?.(`Falha ao iniciar: ${msg}`);
+        onError?.(msg);
         throw err;
       }
     },

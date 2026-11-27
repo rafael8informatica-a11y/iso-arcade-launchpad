@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import { CheckCircle2, Cpu, Trash2, Gamepad2, Monitor, Volume2, Zap } from "lucide-react";
+import { CheckCircle2, Cpu, Download, Trash2, Gamepad2, Monitor, Volume2, Zap } from "lucide-react";
 
 import { AppHeader } from "@/components/emu/AppHeader";
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,19 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
+import { useConnectedGamepads } from "@/hooks/use-gamepad";
+import {
+  ANISOTROPY_OPTIONS,
+  AUTOSAVE_OPTIONS,
+  BLENDING_OPTIONS,
+  COLOR_BOOST_OPTIONS,
+  PRELOADING_OPTIONS,
+  RESOLUTION_OPTIONS,
+} from "@/lib/options";
+import { DEADZONE_MAX, DEADZONE_MIN, gamepadLabel } from "@/lib/gamepad";
 import { isNativeCore, listGpuDrivers, pickGpuDriver, pickNativeBios, removeGpuDriver, type GpuDriver } from "@/lib/emulator";
 import { defaultSettings, setBios, setBiosName, updateSettings, useSettings, type Settings } from "@/lib/library";
-import { performancePatch } from "@/lib/performance";
+import { performancePatch, PROFILE_LABELS } from "@/lib/performance";
 
 export const Route = createFileRoute("/configuracoes")({
   head: () => ({
@@ -74,7 +84,7 @@ function Choice<K extends keyof Settings>({
   );
 }
 
-function Range({ k, min, max, step = 1, unit = "" }: { k: "volume" | "padOpacity" | "padScale" | "frameSkip"; min: number; max: number; step?: number; unit?: string }) {
+function Range({ k, min, max, step = 1, unit = "" }: { k: "volume" | "padOpacity" | "padScale" | "frameSkip" | "deadzone" | "sharpening"; min: number; max: number; step?: number; unit?: string }) {
   const s = useSettings();
   return (
     <div className="flex items-center gap-3">
@@ -94,7 +104,7 @@ function Range({ k, min, max, step = 1, unit = "" }: { k: "volume" | "padOpacity
   );
 }
 
-function Toggle({ k }: { k: "showFps" | "vibration" | "speedHacks" | "mtvu" | "fastCdvd" | "skipDuplicateFrames" | "vsync" }) {
+function Toggle({ k }: { k: "showFps" | "vibration" | "speedHacks" | "mtvu" | "fastCdvd" | "skipDuplicateFrames" | "vsync" | "hidePadOnGamepad" | "fxaa" | "autoSaveOnExit" | "autoLoad" }) {
   const s = useSettings();
   return (
     <div className="flex sm:justify-end">
@@ -177,6 +187,7 @@ function DriverSection() {
 
 function SettingsPage() {
   const s = useSettings();
+  const pads = useConnectedGamepads();
 
   return (
     <div className="min-h-screen bg-background">
@@ -242,16 +253,8 @@ function SettingsPage() {
               ]}
             />
           </Row>
-          <Row label="Resolução interna" hint="Mais alto = mais nítido, mais pesado">
-            <Choice
-              k="resolution"
-              options={[
-                { value: "1", label: "1x nativa (480p)" },
-                { value: "2", label: "2x (720p)" },
-                { value: "3", label: "3x (1080p)" },
-                { value: "4", label: "4x (1440p)" },
-              ]}
-            />
+          <Row label="Resolução interna" hint="Mais alto = mais nítido, mais pesado. 6x chega perto de 4K.">
+            <Choice k="resolution" options={RESOLUTION_OPTIONS} />
           </Row>
           <Row label="Proporção da tela">
             <Choice
@@ -268,6 +271,21 @@ function SettingsPage() {
           </Row>
           <Row label="Mostrar FPS">
             <Toggle k="showFps" />
+          </Row>
+        </Section>
+
+        <Section icon={<Monitor className="size-4" />} title="Imagem e shaders">
+          <Row label="Filtro anisotrópico" hint="Texturas nítidas em chão e estradas vistas de ângulo">
+            <Choice k="anisotropy" options={ANISOTROPY_OPTIONS} />
+          </Row>
+          <Row label="Nitidez (CAS)" hint="Afia a imagem sem serrilhar. 0 desliga.">
+            <Range k="sharpening" min={0} max={100} step={5} />
+          </Row>
+          <Row label="Realce de cores" hint="Mais contraste e saturação, no estilo HDR leve">
+            <Choice k="colorBoost" options={COLOR_BOOST_OPTIONS} />
+          </Row>
+          <Row label="Suavizar serrilhado (FXAA)" hint="Leve; faz mais diferença abaixo de 3x">
+            <Toggle k="fxaa" />
           </Row>
         </Section>
 
@@ -289,21 +307,40 @@ function SettingsPage() {
           <Row label="Vibrar ao tocar">
             <Toggle k="vibration" />
           </Row>
+          <Row
+            label="Gamepad físico"
+            hint="USB ou Bluetooth. Se o controle não aparecer, aperte um botão nele."
+          >
+            <p className="text-sm text-muted-foreground sm:text-right">
+              {pads[0] ? gamepadLabel(pads[0].id) : "Nenhum controle detectado"}
+            </p>
+          </Row>
+          <Row label="Zona morta dos analógicos" hint="Ignora pequenos desvios do analógico parado (drift)">
+            <Range k="deadzone" min={DEADZONE_MIN} max={DEADZONE_MAX} step={1} unit="%" />
+          </Row>
+          <Row
+            label="Ocultar controle na tela ao detectar gamepad"
+            hint="O controle na tela volta sozinho quando o gamepad desconecta"
+          >
+            <Toggle k="hidePadOnGamepad" />
+          </Row>
         </Section>
 
         <Section icon={<Zap className="size-4" />} title="Desempenho">
           <div className="flex flex-wrap gap-2 pb-4">
-            {([
-              ["light", "Mais leve"], ["balanced", "Equilibrado"], ["quality", "Mais nitidez"],
-            ] as const).map(([profile, label]) => (
+            {(Object.keys(PROFILE_LABELS) as (keyof typeof PROFILE_LABELS)[]).map((profile) => (
               <Button key={profile} variant="secondary" size="sm" onClick={() => {
                 updateSettings(performancePatch(profile));
-                toast.success(`Perfil ${label.toLowerCase()} aplicado`);
+                toast.success(`Perfil ${PROFILE_LABELS[profile].toLowerCase()} aplicado`);
               }}>
-                <Zap className="size-4" /> {label}
+                <Zap className="size-4" /> {PROFILE_LABELS[profile]}
               </Button>
             ))}
           </div>
+          <p className="-mt-2 pb-4 text-xs text-muted-foreground">
+            "Realista 4K" usa 6x, anisotrópico 16x, blending alto, nitidez e realce suave de cores. É pesado: só vale
+            em aparelhos topo de linha.
+          </p>
           <Row label="Velocidade do EE" hint="Underclock ajuda em celulares mais fracos">
             <Choice
               k="eeCycleRate"
@@ -331,12 +368,30 @@ function SettingsPage() {
           <Row label="VSync" hint="Menos cortes na imagem, um pouco mais de atraso">
             <Toggle k="vsync" />
           </Row>
+          <Row label="Precisão de blending" hint="Menor = mais rápido, mas pode errar sombras e transparências">
+            <Choice k="blending" options={BLENDING_OPTIONS} />
+          </Row>
+          <Row label="Pré-carregar texturas" hint="Parcial alivia a memória de vídeo">
+            <Choice k="texturePreloading" options={PRELOADING_OPTIONS} />
+          </Row>
+        </Section>
+
+        <Section icon={<Download className="size-4" />} title="Salvamento">
+          <Row label="Salvar ao sair" hint="Também salva quando o app vai para segundo plano">
+            <Toggle k="autoSaveOnExit" />
+          </Row>
+          <Row label="Salvamento automático" hint="Grava no slot Auto enquanto você joga">
+            <Choice k="autoSaveMinutes" options={AUTOSAVE_OPTIONS} />
+          </Row>
+          <Row label="Continuar de onde parou" hint="Ao abrir o jogo, retoma do slot Auto">
+            <Toggle k="autoLoad" />
+          </Row>
         </Section>
 
         <div className="flex justify-end">
           <Button
             variant="ghost"
-            onClick={() => updateSettings({ ...defaultSettings, biosName: s.biosName })}
+            onClick={() => updateSettings({ ...defaultSettings, biosName: s.biosName, profileHintSeen: s.profileHintSeen })}
           >
             Restaurar padrões
           </Button>

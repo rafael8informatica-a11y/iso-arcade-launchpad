@@ -13,6 +13,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "@/components/ui/sonner";
+import { useGamepadNotifications } from "@/hooks/use-gamepad";
 import { setupPwa } from "@/lib/pwa";
 
 function NotFoundComponent() {
@@ -124,6 +125,12 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+/** Avisa quando um controle físico é conectado ou desconectado, em qualquer tela. */
+function GamepadWatcher() {
+  useGamepadNotifications();
+  return null;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -135,6 +142,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
+      <GamepadWatcher />
       <Toaster position="top-center" theme="dark" duration={2000} />
     </QueryClientProvider>
   );

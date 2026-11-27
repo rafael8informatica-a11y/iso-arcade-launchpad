@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { MoreVertical, Pencil, Play, Trash2 } from "lucide-react";
+import { MoreVertical, Pencil, Play, SlidersHorizontal, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -9,10 +10,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { GameSettingsDialog } from "@/components/emu/GameSettingsDialog";
 import { coverClass, formatSize, removeGame, renameGame, type Game } from "@/lib/library";
 import { cn } from "@/lib/utils";
 
 export function GameCard({ game, index }: { game: Game; index: number }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const initials = game.title
     .split(" ")
     .filter(Boolean)
@@ -55,7 +58,7 @@ export function GameCard({ game, index }: { game: Game; index: number }) {
         </div>
       </Link>
 
-      <DropdownMenu>
+      <DropdownMenu modal={false}>
         <DropdownMenuTrigger
           aria-label="Opções do jogo"
           className="absolute right-2 top-2 grid size-8 place-items-center rounded-md bg-background/70 text-foreground opacity-100 backdrop-blur transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
@@ -63,6 +66,9 @@ export function GameCard({ game, index }: { game: Game; index: number }) {
           <MoreVertical className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
+            <SlidersHorizontal /> Configurações deste jogo
+          </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() => {
               const t = window.prompt("Novo nome do jogo", game.title);
@@ -79,6 +85,8 @@ export function GameCard({ game, index }: { game: Game; index: number }) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <GameSettingsDialog game={game} open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }
