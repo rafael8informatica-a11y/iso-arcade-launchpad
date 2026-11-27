@@ -12,6 +12,12 @@ jobs:
       - name: Baixar código do repositório
         uses: actions/checkout@v4
 
+      - name: Aplicar atualização enviada em zip (se existir)
+        run: |
+          if [ -f so-arquivos-alterados.zip ]; then
+            unzip -o so-arquivos-alterados.zip -d .
+          fi
+
       - name: Configurar Bun
         uses: oven-sh/setup-bun@v2
 
