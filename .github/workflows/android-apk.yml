@@ -20,7 +20,7 @@ jobs:
 
       - name: 2. Extrair ZIP mais recente usando Python
         run: |
-          python3 -c '
+          cat << 'EOF' > extract_zip.py
           import glob, os, zipfile, shutil, subprocess
 
           out = subprocess.check_output(["git", "log", "--pretty=format:", "--name-only", "--", "*.zip"]).decode().splitlines()
@@ -32,7 +32,7 @@ jobs:
               raise SystemExit("ERRO: Nenhum arquivo .zip encontrado no repositório.")
 
           target_zip = next(iter(zips))
-          print(f">>> ZIP selecionado: {target_zip} ({os.path.getsize(target_zip)} bytes)")
+          print(">>> ZIP selecionado:", target_zip, os.path.getsize(target_zip), "bytes")
 
           if os.path.exists("build_workspace"):
               shutil.rmtree("build_workspace")
@@ -51,10 +51,11 @@ jobs:
           if not pkg_dir:
               raise SystemExit("ERRO: package.json não encontrado dentro do ZIP.")
 
-          print(f">>> Projeto localizado em: {pkg_dir}")
+          print(">>> Projeto localizado em:", pkg_dir)
           shutil.move(pkg_dir, "app_src")
           shutil.rmtree("build_workspace", ignore_errors=True)
-          '
+          EOF
+          python3 extract_zip.py
 
       - name: 3. Configurar Java (JDK 21)
         uses: actions/setup-java@v4
@@ -90,35 +91,23 @@ jobs:
           if [ -d ".output/public" ]; then
             cp -rf .output/public/* dist/
           fi
-          
-          # Se o TanStack Start não gerou index.html estático, monta dist/index.html com os assets compilados
+
           if [ ! -f "dist/index.html" ]; then
-            python3 -c '
+            cat << 'EOF' > make_html.py
           import glob, os
           js_files = sorted(glob.glob("dist/assets/*.js"))
           css_files = sorted(glob.glob("dist/assets/*.css"))
-          main_js = next((f for f in js_files if "main" in f or "client" in f or "index" in f), js_files[0] if js_files else "")
-          css_tags = "\n".join([f"<link rel=\"stylesheet\" href=\"./{os.path.relpath(c, \"dist\")}\">" for c in css_files])
-          js_tag = f"<script type=\"module\" src=\"./{os.path.relpath(main_js, \"dist\")}\"></script>" if main_js else ""
-          html = f"""<!DOCTYPE html>
-          <html lang="pt-BR">
-          <head>
-            <meta charset="UTF-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-            <title>NEBULA 2</title>
-            {css_tags}
-          </head>
-          <body>
-            <div id="root"></div>
-            {js_tag}
-          </body>
-          </html>"""
+          main_js = next((f for f in js_files if "main" in f or "client" in f or "index" in f), next(iter(js_files), ""))
+          css_tags = "\n".join('<link rel="stylesheet" href="./' + os.path.relpath(c, "dist") + '">' for c in css_files)
+          js_tag = '<script type="module" src="./' + os.path.relpath(main_js, "dist") + '"></script>' if main_js else ""
+          html = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><title>NEBULA 2</title>' + css_tags + '</head><body><div id="root"></div>' + js_tag + '</body></html>'
           with open("dist/index.html", "w") as f:
               f.write(html)
           print(">>> dist/index.html gerado com:", main_js)
-          '
+          EOF
+            python3 make_html.py
           fi
-          
+
           npx cap sync android
 
       - name: 8. Gerar APK limpo (Debug)
