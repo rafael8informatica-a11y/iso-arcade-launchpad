@@ -17,44 +17,45 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 2. Limpar arquivos antigos e extrair ZIP mais recente
+      - name: 2. Extrair ZIP mais recente com segurança
         run: |
-          # Encontra o .zip enviado mais recentemente no histórico do Git
+          set -e
           LATEST_ZIP=$(git log -n 1 --pretty=format: --name-only -- "*.zip" | head -n 1)
           if [ -z "$LATEST_ZIP" ] || [ ! -f "$LATEST_ZIP" ]; then
             LATEST_ZIP=$(git log --pretty=format: --name-only -- "*.zip" | grep -v '^$' | while read -r f; do [ -f "$f" ] && echo "$f" && break; done)
           fi
-
-          # Fallback caso exista algum .zip solto na raiz
           if [ -z "$LATEST_ZIP" ]; then
             LATEST_ZIP=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
           fi
 
           if [ -z "$LATEST_ZIP" ]; then
-            echo "ERRO CRÍTICO: Nenhum arquivo .zip encontrado na raiz do repositório."
+            echo "ERRO: Nenhum arquivo .zip encontrado."
             exit 1
           fi
 
-          echo ">>> Usando o arquivo ZIP: $LATEST_ZIP"
+          echo ">>> Arquivo ZIP selecionado: $LATEST_ZIP"
+          ls -lh "$LATEST_ZIP"
 
-          # Apaga todas as pastas e arquivos antigos do repositório
-          rm -rf src android public scripts dist node_modules package.json bun.lock vite.config.ts tsconfig.json capacitor.config.ts
+          # Extrai o ZIP em uma pasta isolada para não tocar em .git ou .github
+          rm -rf build_workspace
+          mkdir -p build_workspace
+          unzip -oq "$LATEST_ZIP" -d build_workspace
 
-          # Extrai o novo ZIP em pasta temporária
-          mkdir -p temp_extract
-          unzip -oq "$LATEST_ZIP" -d temp_extract
-
-          # Detecta automaticamente se há uma subpasta interna
-          SUBDIR=$(find temp_extract -mindepth 1 -maxdepth 1 -type d | head -n 1)
-          if [ -n "$SUBDIR" ] && [ -f "$SUBDIR/package.json" ]; then
-            echo ">>> Extraindo conteúdo da subpasta: $SUBDIR"
-            cp -a "$SUBDIR"/. .
+          # Descobre se o conteúdo está na raiz de build_workspace ou dentro de uma subpasta
+          if [ -f "build_workspace/package.json" ]; then
+            echo ">>> Projeto encontrado na raiz do ZIP"
+            mv build_workspace app_src
           else
-            echo ">>> Extraindo conteúdo da raiz do ZIP"
-            cp -a temp_extract/. .
+            SUBDIR=$(find build_workspace -mindepth 1 -maxdepth 2 -name "package.json" -exec dirname {} \; | head -n 1)
+            if [ -n "$SUBDIR" ]; then
+              echo ">>> Projeto encontrado na subpasta: $SUBDIR"
+              mv "$SUBDIR" app_src
+            else
+              echo "ERRO: package.json não encontrado dentro do ZIP!"
+              find build_workspace -maxdepth 3
+              exit 1
+            fi
           fi
-
-          rm -rf temp_extract
 
       - name: 3. Configurar Java (JDK 17)
         uses: actions/setup-java@v5
@@ -71,24 +72,25 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: 6. Instalar dependências do projeto
+        working-directory: app_src
         run: bun install
 
       - name: 7. Baixar núcleo nativo (ARMSX2)
+        working-directory: app_src
         run: |
           if [ -f "scripts/fetch-armsx2-core.sh" ]; then
             chmod +x scripts/fetch-armsx2-core.sh
             ./scripts/fetch-armsx2-core.sh
-          else
-            echo "Aviso: scripts/fetch-armsx2-core.sh não encontrado, pulando etapa."
           fi
 
-      - name: 8. Verificar código e compilar aplicação Web
+      - name: 8. Compilar Web e sincronizar Android
+        working-directory: app_src
         run: |
           bun run build
           bunx cap sync android
 
       - name: 9. Gerar APK limpo (Debug)
-        working-directory: android
+        working-directory: app_src/android
         run: |
           chmod +x gradlew
           ./gradlew clean assembleDebug
@@ -97,5 +99,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nebula2-apk-atualizado
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: app_src/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
