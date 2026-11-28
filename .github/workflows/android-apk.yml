@@ -62,7 +62,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 4. Configurar Node.js e Bun
+      - name: 4. Configurar Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -84,8 +84,9 @@ jobs:
       - name: 7. Compilar Web e sincronizar Android
         working-directory: app_src
         run: |
-          bun run build || npm run build
-          bunx cap sync android || npx cap sync android
+          bun run build || npx vite build
+          mkdir -p dist
+          bunx cap copy android || npx cap copy android
 
       - name: 8. Gerar APK limpo (Debug)
         working-directory: app_src/android
