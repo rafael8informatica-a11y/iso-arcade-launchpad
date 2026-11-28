@@ -3,8 +3,6 @@ name: Build e APK Unificado (NEBULA 2)
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -16,46 +14,47 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          lfs: true
 
-      - name: 2. Extrair ZIP mais recente com segurança
+      - name: 2. Extrair ZIP mais recente usando Python
         run: |
-          set -e
-          LATEST_ZIP=$(git log -n 1 --pretty=format: --name-only -- "*.zip" | head -n 1)
-          if [ -z "$LATEST_ZIP" ] || [ ! -f "$LATEST_ZIP" ]; then
-            LATEST_ZIP=$(git log --pretty=format: --name-only -- "*.zip" | grep -v '^$' | while read -r f; do [ -f "$f" ] && echo "$f" && break; done)
-          fi
-          if [ -z "$LATEST_ZIP" ]; then
-            LATEST_ZIP=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
-          fi
+          python3 -c '
+          import glob, os, zipfile, shutil, subprocess
 
-          if [ -z "$LATEST_ZIP" ]; then
-            echo "ERRO: Nenhum arquivo .zip encontrado."
-            exit 1
-          fi
+          # Tenta pegar o zip mais recente pelo git log
+          out = subprocess.check_output(["git", "log", "--pretty=format:", "--name-only", "--", "*.zip"]).decode().splitlines()
+          zips = [f for f in out if f.strip() and os.path.isfile(f.strip())]
+          if not zips:
+              zips = sorted(glob.glob("*.zip"), key=os.path.getmtime, reverse=True)
 
-          echo ">>> Arquivo ZIP selecionado: $LATEST_ZIP"
-          ls -lh "$LATEST_ZIP"
+          if not zips:
+              raise SystemExit("ERRO: Nenhum arquivo .zip encontrado no repositório.")
 
-          # Extrai o ZIP em uma pasta isolada para não tocar em .git ou .github
-          rm -rf build_workspace
-          mkdir -p build_workspace
-          unzip -oq "$LATEST_ZIP" -d build_workspace
+          target_zip = zips[0]
+          print(f">>> ZIP selecionado: {target_zip} ({os.path.getsize(target_zip)} bytes)")
 
-          # Descobre se o conteúdo está na raiz de build_workspace ou dentro de uma subpasta
-          if [ -f "build_workspace/package.json" ]; then
-            echo ">>> Projeto encontrado na raiz do ZIP"
-            mv build_workspace app_src
-          else
-            SUBDIR=$(find build_workspace -mindepth 1 -maxdepth 2 -name "package.json" -exec dirname {} \; | head -n 1)
-            if [ -n "$SUBDIR" ]; then
-              echo ">>> Projeto encontrado na subpasta: $SUBDIR"
-              mv "$SUBDIR" app_src
-            else
-              echo "ERRO: package.json não encontrado dentro do ZIP!"
-              find build_workspace -maxdepth 3
-              exit 1
-            fi
-          fi
+          if os.path.exists("build_workspace"):
+              shutil.rmtree("build_workspace")
+          if os.path.exists("app_src"):
+              shutil.rmtree("app_src")
+
+          with zipfile.ZipFile(target_zip, "r") as zf:
+              zf.extractall("build_workspace")
+
+          # Localiza onde está o package.json
+          pkg_dir = None
+          for root, dirs, files in os.walk("build_workspace"):
+              if "package.json" in files:
+                  pkg_dir = root
+                  break
+
+          if not pkg_dir:
+              raise SystemExit("ERRO: package.json não encontrado dentro do ZIP.")
+
+          print(f">>> Projeto localizado em: {pkg_dir}")
+          shutil.move(pkg_dir, "app_src")
+          shutil.rmtree("build_workspace", ignore_errors=True)
+          '
 
       - name: 3. Configurar Java (JDK 17)
         uses: actions/setup-java@v5
