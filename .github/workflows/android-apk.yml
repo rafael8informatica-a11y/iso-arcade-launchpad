@@ -2,7 +2,9 @@ name: Build e APK Unificado (NEBULA 2)
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -29,7 +31,7 @@ jobs:
           if not zips:
               raise SystemExit("ERRO: Nenhum arquivo .zip encontrado no repositório.")
 
-          target_zip = zips[0]
+          target_zip = next(iter(zips))
           print(f">>> ZIP selecionado: {target_zip} ({os.path.getsize(target_zip)} bytes)")
 
           if os.path.exists("build_workspace"):
