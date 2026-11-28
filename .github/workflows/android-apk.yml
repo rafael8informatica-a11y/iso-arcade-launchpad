@@ -85,6 +85,11 @@ jobs:
         working-directory: app_src
         run: |
           npx vite build
+          rm -rf dist
+          mkdir -p dist
+          if [ -d ".output/public" ]; then
+            cp -rf .output/public/* dist/
+          fi
           npx cap sync android
 
       - name: 8. Gerar APK limpo (Debug)
