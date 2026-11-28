@@ -90,6 +90,35 @@ jobs:
           if [ -d ".output/public" ]; then
             cp -rf .output/public/* dist/
           fi
+          
+          # Se o TanStack Start não gerou index.html estático, monta dist/index.html com os assets compilados
+          if [ ! -f "dist/index.html" ]; then
+            python3 -c '
+          import glob, os
+          js_files = sorted(glob.glob("dist/assets/*.js"))
+          css_files = sorted(glob.glob("dist/assets/*.css"))
+          main_js = next((f for f in js_files if "main" in f or "client" in f or "index" in f), js_files[0] if js_files else "")
+          css_tags = "\n".join([f"<link rel=\"stylesheet\" href=\"./{os.path.relpath(c, \"dist\")}\">" for c in css_files])
+          js_tag = f"<script type=\"module\" src=\"./{os.path.relpath(main_js, \"dist\")}\"></script>" if main_js else ""
+          html = f"""<!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <title>NEBULA 2</title>
+            {css_tags}
+          </head>
+          <body>
+            <div id="root"></div>
+            {js_tag}
+          </body>
+          </html>"""
+          with open("dist/index.html", "w") as f:
+              f.write(html)
+          print(">>> dist/index.html gerado com:", main_js)
+          '
+          fi
+          
           npx cap sync android
 
       - name: 8. Gerar APK limpo (Debug)
