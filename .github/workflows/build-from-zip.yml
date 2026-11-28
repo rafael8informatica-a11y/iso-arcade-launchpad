@@ -1,0 +1,71 @@
+name: Gerar APK do ZIP
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar arquivos do repositório
+        uses: actions/checkout@v4
+
+      - name: Extrair o arquivo ZIP automaticamente
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Nenhum arquivo .zip encontrado na raiz!"
+            exit 1
+          fi
+          unzip -q "$ZIP_FILE" -d temp_extract
+          # Move os arquivos mesmo se estiverem dentro de uma subpasta no zip
+          if [ -d "temp_extract/iso-arcade-launchpad-main" ]; then
+            mv temp_extract/iso-arcade-launchpad-main/* .
+          else
+            mv temp_extract/* .
+          fi
+
+      - name: Configurar Java (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar dependências
+        run: bun install
+
+      - name: Baixar núcleo nativo (ARMSX2)
+        run: |
+          if [ -f "scripts/fetch-armsx2-core.sh" ]; then
+            chmod +x scripts/fetch-armsx2-core.sh
+            ./scripts/fetch-armsx2-core.sh
+          fi
+
+      - name: Compilar Web e sincronizar Android
+        run: |
+          bun run build
+          bunx cap sync android
+
+      - name: Gerar APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Salvar APK para download
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-emulador-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
