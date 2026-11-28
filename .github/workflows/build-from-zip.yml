@@ -10,23 +10,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Baixar arquivos do repositório
+      - name: Baixar repositório com histórico
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Extrair o arquivo ZIP automaticamente
+      - name: Extrair o ZIP mais recente
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
-          if [ -z "$ZIP_FILE" ]; then
-            echo "Nenhum arquivo .zip encontrado na raiz!"
+          shopt -s dotglob
+          # Busca o arquivo .zip modificado/enviado mais recentemente no Git
+          LATEST_ZIP=$(git log -n 1 --pretty=format: --name-only -- "*.zip" | head -n 1)
+          
+          # Se o último commit não foi um .zip (ex: editou o .yml), pega o último .zip da história
+          if [ -z "$LATEST_ZIP" ] || [ ! -f "$LATEST_ZIP" ]; then
+            LATEST_ZIP=$(git log --pretty=format: --name-only -- "*.zip" | grep -v '^$' | while read f; do [ -f "$f" ] && echo "$f" && break; done)
+          fi
+
+          echo "Compilando a partir do ZIP mais recente: $LATEST_ZIP"
+          if [ -z "$LATEST_ZIP" ]; then
+            echo "ERRO: Nenhum arquivo .zip encontrado."
             exit 1
           fi
-          unzip -q "$ZIP_FILE" -d temp_extract
-          # Move os arquivos mesmo se estiverem dentro de uma subpasta no zip
+
+          mkdir -p temp_extract
+          unzip -oq "$LATEST_ZIP" -d temp_extract
+          
           if [ -d "temp_extract/iso-arcade-launchpad-main" ]; then
-            mv temp_extract/iso-arcade-launchpad-main/* .
+            cp -rf temp_extract/iso-arcade-launchpad-main/* .
           else
-            mv temp_extract/* .
+            cp -rf temp_extract/* .
           fi
+          rm -rf temp_extract
 
       - name: Configurar Java (JDK 17)
         uses: actions/setup-java@v4
@@ -52,16 +66,17 @@ jobs:
             ./scripts/fetch-armsx2-core.sh
           fi
 
-      - name: Compilar Web e sincronizar Android
+      - name: Limpar build anterior e compilar Web
         run: |
+          rm -rf dist android/app/src/main/assets/public
           bun run build
           bunx cap sync android
 
-      - name: Gerar APK
+      - name: Gerar APK limpo
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew clean assembleDebug
 
       - name: Salvar APK para download
         uses: actions/upload-artifact@v4
