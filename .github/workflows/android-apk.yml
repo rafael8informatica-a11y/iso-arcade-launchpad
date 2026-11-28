@@ -56,11 +56,11 @@ jobs:
           shutil.rmtree("build_workspace", ignore_errors=True)
           '
 
-      - name: 3. Configurar Java (JDK 17)
+      - name: 3. Configurar Java (JDK 21)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: 4. Configurar Bun
         uses: oven-sh/setup-bun@v2
@@ -86,13 +86,13 @@ jobs:
         run: |
           bun run build || npx vite build
           mkdir -p dist
-          bunx cap copy android || npx cap copy android
+          bunx cap sync android || npx cap sync android || npx cap copy android
 
       - name: 8. Gerar APK limpo (Debug)
         working-directory: app_src/android
         run: |
           chmod +x gradlew
-          ./gradlew clean assembleDebug
+          ./gradlew assembleDebug --stacktrace
 
       - name: 9. Disponibilizar APK para download
         uses: actions/upload-artifact@v4
