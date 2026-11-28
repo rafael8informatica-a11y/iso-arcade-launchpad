@@ -21,9 +21,8 @@ jobs:
           python3 -c '
           import glob, os, zipfile, shutil, subprocess
 
-          # Tenta pegar o zip mais recente pelo git log
           out = subprocess.check_output(["git", "log", "--pretty=format:", "--name-only", "--", "*.zip"]).decode().splitlines()
-          zips = [f for f in out if f.strip() and os.path.isfile(f.strip())]
+          zips = [f.strip() for f in out if f.strip() and os.path.isfile(f.strip())]
           if not zips:
               zips = sorted(glob.glob("*.zip"), key=os.path.getmtime, reverse=True)
 
@@ -41,7 +40,6 @@ jobs:
           with zipfile.ZipFile(target_zip, "r") as zf:
               zf.extractall("build_workspace")
 
-          # Localiza onde está o package.json
           pkg_dir = None
           for root, dirs, files in os.walk("build_workspace"):
               if "package.json" in files:
