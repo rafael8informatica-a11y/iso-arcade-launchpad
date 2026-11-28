@@ -63,7 +63,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: 4. Configurar Node.js e Bun
+      - name: 4. Configurar Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -72,7 +72,7 @@ jobs:
         working-directory: app_src
         run: |
           rm -f bun.lock bun.lockb package-lock.json
-          npm install --legacy-peer-deps
+          bun install
 
       - name: 6. Baixar núcleo nativo (ARMSX2)
         working-directory: app_src
@@ -82,39 +82,21 @@ jobs:
             ./scripts/fetch-armsx2-core.sh
           fi
 
-      - name: 7. Compilar Web e sincronizar Android
+      - name: 7. Compilar Web usando o script original do projeto
         working-directory: app_src
         run: |
-          npx vite build
-          rm -rf dist
-          mkdir -p dist
-          if [ -d ".output/public" ]; then
-            cp -rf .output/public/* dist/
-          fi
-
-          if [ ! -f "dist/index.html" ]; then
-            cat << 'EOF' > make_html.py
-          import glob, os
-          js_files = sorted(glob.glob("dist/assets/*.js"))
-          css_files = sorted(glob.glob("dist/assets/*.css"))
-          main_js = next((f for f in js_files if "main" in f or "client" in f or "index" in f), next(iter(js_files), ""))
-          css_tags = "\n".join('<link rel="stylesheet" href="./' + os.path.relpath(c, "dist") + '">' for c in css_files)
-          js_tag = '<script type="module" src="./' + os.path.relpath(main_js, "dist") + '"></script>' if main_js else ""
-          html = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><title>NEBULA 2</title>' + css_tags + '</head><body><div id="root"></div>' + js_tag + '</body></html>'
-          with open("dist/index.html", "w") as f:
-              f.write(html)
-          print(">>> dist/index.html gerado com:", main_js)
-          EOF
-            python3 make_html.py
-          fi
-
-          npx cap sync android
+          cat package.json
+          cat capacitor.config.ts || true
+          bun run build
+          ls -la dist || true
+          ls -la .output/public || true
+          bunx cap sync android
 
       - name: 8. Gerar APK limpo (Debug)
         working-directory: app_src/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew clean assembleDebug
 
       - name: 9. Disponibilizar APK para download
         uses: actions/upload-artifact@v4
